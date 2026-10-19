@@ -60,11 +60,16 @@ jest.mock('@hcengineering/tracker', () => {
     __esModule: true,
     ...actual,
     groupShiftsByRecipient,
+    dependencyShiftEmailRecipientsMeta: 'server:dependency-shift-email-recipients',
     default: {
       ...actual.default,
       class: {
         ...actual.default.class,
         DependencyShiftRequest: 'tracker:class:DependencyShiftRequest'
+      },
+      ids: {
+        ...actual.default.ids,
+        DependencyShiftedNotification: 'tracker:notification:DependencyShifted'
       }
     }
   }
@@ -211,7 +216,7 @@ function makeControl (opts: WorldOptions = {}): any {
       objectId
     })
   }
-  return { ctx: { contextData: {} }, findAll, txFactory }
+  return { ctx: { contextData: {} }, findAll, txFactory, txes: [] }
 }
 
 function makeReqTx (modifiedBy: string, over: Partial<Record<string, unknown>> = {}): any {
@@ -255,7 +260,7 @@ describe('OnDependencyShiftRequest', () => {
     getAccountBySocialId.mockResolvedValue(REAL)
   })
 
-  it('derives triggerUserId from tx.modifiedBy and self-suppresses the author', async () => {
+  it('creates an email-eligible summary and self-suppresses the author', async () => {
     getAccountBySocialId.mockResolvedValue(REAL) // modifiedBy 'social-real' → REAL account
     const control = makeControl()
     const res = await OnDependencyShiftRequest([makeReqTx('social-real')], control)
@@ -266,11 +271,31 @@ describe('OnDependencyShiftRequest', () => {
     expect(notif.attributes.triggerUserId).toBe(REAL)
     // Recipient is the member, not the self-suppressed author.
     expect(notif.attributes.user).toBe(MEMBER)
+    // Gmail reads the first notification type to select the email template.
+    expect(notif.attributes.types).toEqual([tracker.ids.DependencyShiftedNotification])
     // No self-notification back to the trigger user.
     const selfNotif = res.filter(isShiftedNotificationCreate).some((t: any) => t.attributes.user === REAL)
     expect(selfNotif).toBe(false)
     // The request doc is always cleaned up.
     expect(requestRemoved(res)).toBe(true)
+  })
+
+  it('marks due-date updates covered by the created summary for each recipient', async () => {
+    const control = makeControl()
+    const request = makeReqTx('social-real')
+    const dueDateUpdate: any = {
+      _class: core.class.TxUpdateDoc,
+      objectClass: tracker.class.Issue,
+      objectId: 'issueB',
+      operations: { dueDate: DAY0 + 10 * DAY }
+    }
+    control.txes = [dueDateUpdate, request]
+
+    await OnDependencyShiftRequest([request], control)
+
+    expect(dueDateUpdate.meta).toEqual({
+      'server:dependency-shift-email-recipients': JSON.stringify([MEMBER])
+    })
   })
 
   it('fails closed (no notifications) when the author account cannot be resolved', async () => {
