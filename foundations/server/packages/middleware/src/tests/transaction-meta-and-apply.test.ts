@@ -24,7 +24,7 @@ const TEST_DOC_CLASS = 'test:class:Document' as any
 const TEST_SPACE = 'test:space:Workspace' as any
 
 function createUpdate (factory: TxFactory, id: string): any {
-  return factory.createTxUpdateDoc(TEST_DOC_CLASS, TEST_SPACE, id, { title: id })
+  return factory.createTxUpdateDoc(TEST_DOC_CLASS, TEST_SPACE, id as any, { title: id } as any)
 }
 
 describe('NormalizeTxMiddleware server-only meta', () => {
@@ -44,7 +44,7 @@ describe('NormalizeTxMiddleware server-only meta', () => {
         return {}
       }
     }
-    const middleware = new (NormalizeTxMiddleware as any)({} as PipelineContext, next)
+    const middleware = new (NormalizeTxMiddleware as any)({}, next)
 
     await middleware.tx({} as any, [root, apply])
 
@@ -61,14 +61,15 @@ describe('ApplyTxMiddleware', () => {
     const nested = createUpdate(factory, 'nested')
     const apply = factory.createTxApplyIf(core.space.Tx, undefined, [], [], [nested], undefined)
     const received: Tx[][] = []
-    const middleware = new ApplyTxMiddleware(
-      { hierarchy: { isDerived: (value: unknown, parent: unknown) => value === parent } } as PipelineContext,
+    const middleware = await ApplyTxMiddleware.create(
+      {} as any,
+      { hierarchy: { isDerived: (value: unknown, parent: unknown) => value === parent } } as unknown as PipelineContext,
       {
         tx: async (_ctx: unknown, txes: Tx[]): Promise<TxMiddlewareResult> => {
           received.push(txes)
           return {}
         }
-      }
+      } as any
     )
 
     await middleware.tx({} as any, [preceding, apply])

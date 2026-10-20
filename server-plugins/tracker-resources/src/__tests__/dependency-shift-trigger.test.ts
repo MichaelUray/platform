@@ -66,10 +66,6 @@ jest.mock('@hcengineering/tracker', () => {
       class: {
         ...actual.default.class,
         DependencyShiftRequest: 'tracker:class:DependencyShiftRequest'
-      },
-      ids: {
-        ...actual.default.ids,
-        DependencyShiftedNotification: 'tracker:notification:DependencyShifted'
       }
     }
   }
@@ -272,7 +268,9 @@ describe('OnDependencyShiftRequest', () => {
     // Recipient is the member, not the self-suppressed author.
     expect(notif.attributes.user).toBe(MEMBER)
     // Gmail reads the first notification type to select the email template.
-    expect(notif.attributes.types).toEqual([tracker.ids.DependencyShiftedNotification])
+    // The real plugin id: an undefined id would silently drop the summary email.
+    expect(notif.attributes.types).toEqual(['tracker:ids:DependencyShiftedNotification'])
+    expect(tracker.ids.DependencyShiftedNotification).toBe('tracker:ids:DependencyShiftedNotification')
     // No self-notification back to the trigger user.
     const selfNotif = res.filter(isShiftedNotificationCreate).some((t: any) => t.attributes.user === REAL)
     expect(selfNotif).toBe(false)

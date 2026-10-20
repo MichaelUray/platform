@@ -18,6 +18,7 @@
 import core, {
   type AccountUuid,
   type Data,
+  type Doc,
   type Ref,
   type Space,
   type TxCreateDoc,
@@ -56,9 +57,9 @@ import gmailResources from '../index'
 
 const RECIPIENT = 'recipient' as AccountUuid
 const EMAIL = 'recipient@example.test'
-const ISSUE = 'issue' as Ref<core.Doc>
+const ISSUE = 'issue' as Ref<Doc>
 const DUE_DATE_TYPE = 'tracker:notification:Issue_dueDate'
-const SUMMARY_TYPE = 'tracker:notification:DependencyShifted'
+const SUMMARY_TYPE = 'tracker:ids:DependencyShiftedNotification'
 const CACHE_KEY = 'AvailableNotificationProviders'
 
 function makeNotification (id: string, type: string): TxCreateDoc<InboxNotification> {
@@ -105,7 +106,7 @@ describe('NotificationsHandler', () => {
       [CACHE_KEY, new Map([[dueDate.objectId, [notification.providers.InboxNotificationProvider]]])]
     ])
     const fetchMock = jest.fn().mockResolvedValue({ ok: true, statusText: 'OK' })
-    globalThis.fetch = fetchMock as unknown as typeof fetch
+    globalThis.fetch = fetchMock
     const control = {
       ctx: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
       contextCache,

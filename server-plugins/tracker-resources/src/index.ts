@@ -860,7 +860,7 @@ export async function OnDependencyShiftRequest (txes: Tx[], control: TriggerCont
     for (const tx of control.txes) {
       if (
         tx._class !== core.class.TxUpdateDoc ||
-        tx.objectClass !== tracker.class.Issue ||
+        (tx as TxUpdateDoc<Issue>).objectClass !== tracker.class.Issue ||
         !('dueDate' in (tx as TxUpdateDoc<Issue>).operations)
       ) {
         continue

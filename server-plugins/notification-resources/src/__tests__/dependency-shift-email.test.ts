@@ -31,7 +31,7 @@ const SOCIAL_ID = 'recipient-social'
 const emailProvider = {
   _id: gmail.providers.EmailNotificationProvider,
   defaultEnabled: true
-} as NotificationProvider
+} as unknown as NotificationProvider
 
 const dueDateType = {
   _id: 'tracker:notification:Issue_dueDate',
@@ -39,14 +39,14 @@ const dueDateType = {
   field: 'dueDate',
   txClasses: [core.class.TxUpdateDoc],
   objectClass: tracker.class.Issue
-} as NotificationType
+} as unknown as NotificationType
 
 const dependencyShiftType = {
-  _id: 'tracker:notification:DependencyShifted',
+  _id: 'tracker:ids:DependencyShiftedNotification',
   defaultEnabled: true,
   txClasses: [core.class.TxCreateDoc],
   objectClass: tracker.class.DependencyShiftedNotification
-} as NotificationType
+} as unknown as NotificationType
 
 function makeControl (): any {
   return {
@@ -90,7 +90,7 @@ describe('dependency-shift due-date email suppression', () => {
     const result = await isShouldNotifyTx(
       makeControl(),
       makeDueDateUpdate(),
-      {} as Issue,
+      {} as unknown as Issue,
       { account: RECIPIENT, socialIds: [SOCIAL_ID], employee: 'employee' } as any,
       false,
       false,
@@ -116,7 +116,7 @@ describe('dependency-shift due-date email suppression', () => {
     const result = await isShouldNotifyTx(
       makeControl(),
       makeDueDateUpdate(),
-      {} as Issue,
+      {} as unknown as Issue,
       { account: RECIPIENT, socialIds: [SOCIAL_ID], employee: 'employee' } as any,
       false,
       false,
