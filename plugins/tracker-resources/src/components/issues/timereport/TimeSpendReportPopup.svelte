@@ -25,6 +25,7 @@
   import TitlePresenter from '../TitlePresenter.svelte'
   import TimeReportDayDropdown from './TimeReportDayDropdown.svelte'
   import { Analytics } from '@hcengineering/analytics'
+  import { createTimeSpendReport } from './create-time-spend-report'
 
   export let issue: Issue | undefined = undefined
   export let issueId: Ref<Issue> | undefined = issue?._id
@@ -54,15 +55,11 @@
   async function create(): Promise<void> {
     if (value === undefined) {
       if (space && issueId) {
-        await client.addCollection(
-          tracker.class.TimeSpendReport,
-          space,
-          issueId,
-          issueClass,
-          'reports',
+        await createTimeSpendReport(
+          client,
+          { _id: issueId, _class: issueClass, space, identifier: issue?.identifier },
           data as AttachedData<TimeSpendReport>
         )
-        Analytics.handleEvent(TrackerEvents.IssueTimeSpentAdded, { issue: issue?.identifier ?? issueId })
       }
     } else {
       const ops: DocumentUpdate<TimeSpendReport> = {}
