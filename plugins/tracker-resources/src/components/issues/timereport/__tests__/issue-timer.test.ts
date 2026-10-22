@@ -183,29 +183,39 @@ describe('persisted issue timer', () => {
 })
 
 describe('saving a timer report once', () => {
+  // Mocked server: a scoped apply with notMatch checks and inserts atomically, and the trigger adds to the total.
   let reports: Set<string>
+  let reportedTime: number
   let create: jest.Mock
 
   function exists (id: string): () => Promise<boolean> {
     return async () => reports.has(id)
   }
 
+  function save (id: string): () => Promise<boolean> {
+    return async () => await create(id)
+  }
+
   beforeEach(() => {
     reports = new Set()
+    reportedTime = 0
     create = jest.fn(async (id: string) => {
-      if (reports.has(id)) throw new Error('duplicate key value violates unique constraint')
+      if (reports.has(id)) return false
       reports.add(id)
+      reportedTime += 1
+      return true
     })
   })
 
   it('treats a second dialog submitting the same report afterwards as already saved', async () => {
-    await expect(saveReportOnce(exists('report'), async () => await create('report'))).resolves.toBe('created')
-    await expect(saveReportOnce(exists('report'), async () => await create('report'))).resolves.toBe('exists')
+    await expect(saveReportOnce(exists('report'), save('report'))).resolves.toBe('created')
+    await expect(saveReportOnce(exists('report'), save('report'))).resolves.toBe('exists')
     expect(create).toHaveBeenCalledTimes(1)
     expect(reports.size).toBe(1)
+    expect(reportedTime).toBe(1)
   })
 
-  it('treats the losing one of two concurrent submissions as already saved', async () => {
+  it('adds the time once when two dialogs submit concurrently', async () => {
     let releaseChecks: () => void = () => {}
     const checksDone = new Promise<void>((resolve) => {
       releaseChecks = resolve
@@ -219,28 +229,32 @@ describe('saving a timer report once', () => {
       return found
     }
     const results = await Promise.all([
-      saveReportOnce(racingExists, async () => await create('report')),
-      saveReportOnce(racingExists, async () => await create('report'))
+      saveReportOnce(racingExists, save('report')),
+      saveReportOnce(racingExists, save('report'))
     ])
     expect(results.sort()).toEqual(['created', 'exists'])
     expect(create).toHaveBeenCalledTimes(2)
     expect(reports.size).toBe(1)
+    expect(reportedTime).toBe(1)
   })
 
-  it('rejects a failed save so the dialog stays open, and a retry creates the report once', async () => {
+  it('rejects a failed save so the dialog stays open, and a retry adds the time once', async () => {
     create.mockRejectedValueOnce(new Error('Offline'))
-    await expect(saveReportOnce(exists('report'), async () => await create('report'))).rejects.toThrow('Offline')
+    await expect(saveReportOnce(exists('report'), save('report'))).rejects.toThrow('Offline')
     expect(reports.size).toBe(0)
-    await expect(saveReportOnce(exists('report'), async () => await create('report'))).resolves.toBe('created')
+    await expect(saveReportOnce(exists('report'), save('report'))).resolves.toBe('created')
     expect(reports.size).toBe(1)
+    expect(reportedTime).toBe(1)
   })
 
   it('treats a lost response after a successful save as saved', async () => {
     create.mockImplementationOnce(async (id: string) => {
       reports.add(id)
+      reportedTime += 1
       throw new Error('Connection closed')
     })
-    await expect(saveReportOnce(exists('report'), async () => await create('report'))).resolves.toBe('exists')
+    await expect(saveReportOnce(exists('report'), save('report'))).resolves.toBe('exists')
+    expect(reportedTime).toBe(1)
   })
 
   it('keeps the original error when the existence check after a failure also fails', async () => {
@@ -250,6 +264,6 @@ describe('saving a timer report once', () => {
       return false
     }
     create.mockRejectedValueOnce(new Error('Offline'))
-    await expect(saveReportOnce(flakyExists, async () => await create('report'))).rejects.toThrow('Offline')
+    await expect(saveReportOnce(flakyExists, save('report'))).rejects.toThrow('Offline')
   })
 })

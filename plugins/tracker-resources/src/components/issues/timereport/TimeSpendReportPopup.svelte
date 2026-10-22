@@ -26,7 +26,7 @@
   import TitlePresenter from '../TitlePresenter.svelte'
   import TimeReportDayDropdown from './TimeReportDayDropdown.svelte'
   import { Analytics } from '@hcengineering/analytics'
-  import { createTimeSpendReport } from './create-time-spend-report'
+  import { createTimeSpendReport, createTimeSpendReportOnce } from './create-time-spend-report'
   import { saveReportOnce } from './issue-timer'
 
   export let issue: Issue | undefined = undefined
@@ -83,9 +83,7 @@
         // Another dialog or tab may submit the same timer report.
         const result = await saveReportOnce(
           async () => (await client.findOne(tracker.class.TimeSpendReport, { _id: id })) !== undefined,
-          async () => {
-            await createTimeSpendReport(client, target, data as AttachedData<TimeSpendReport>, id)
-          }
+          async () => await createTimeSpendReportOnce(client, target, data as AttachedData<TimeSpendReport>, id)
         )
         if (result === 'exists') await notify(tracker.string.TimeReportAlreadySaved, NotificationSeverity.Info)
       }
