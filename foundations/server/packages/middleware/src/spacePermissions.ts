@@ -76,7 +76,20 @@ export function getUpdatedAttributes (operations: DocumentUpdate<Doc>): Set<stri
   return result
 }
 
-/** Only the exact scalar self-join and self-leave forms are member operations. */
+/** Check that an array operator targets exactly the current account. */
+function isSelfMembershipOperand (operand: unknown, uuid: AccountUuid, key: '$each' | '$in'): boolean {
+  if (operand === uuid) return true
+  if (operand === null || typeof operand !== 'object' || Array.isArray(operand)) return false
+  // Attribute editors push a one-element $each, optionally with a numeric $position, and pull a one-element $in.
+  const allowed = key === '$each' ? ['$each', '$position'] : ['$in']
+  if (!Object.keys(operand).every((name) => allowed.includes(name))) return false
+  const position: unknown = Reflect.get(operand, '$position')
+  if (position !== undefined && typeof position !== 'number') return false
+  const values: unknown = Reflect.get(operand, key)
+  return Array.isArray(values) && values.length === 1 && values[0] === uuid
+}
+
+/** Only scalar or single-element self-join and self-leave forms are member operations. */
 export function isSelfMembershipChange (
   operations: DocumentUpdate<Doc>,
   uuid: AccountUuid
@@ -87,7 +100,9 @@ export function isSelfMembershipChange (
   if (key !== '$push' && key !== '$pull') return
   const value: unknown = operations[key]
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return
-  if (Object.keys(value).length !== 1 || Reflect.get(value, 'members') !== uuid) return
+  if (Object.keys(value).length !== 1) return
+  const operand: unknown = Reflect.get(value, 'members')
+  if (!isSelfMembershipOperand(operand, uuid, key === '$push' ? '$each' : '$in')) return
   return key === '$push' ? 'join' : 'leave'
 }
 

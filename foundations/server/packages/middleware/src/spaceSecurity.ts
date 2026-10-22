@@ -440,8 +440,11 @@ export class SpaceSecurityMiddleware extends BaseMiddleware implements Middlewar
         )
       }
     }
+    const broadcast = ctx.contextData.broadcast
+    const start = broadcast.txes.length
     // Authorization and persistence must succeed before changing read access or broadcasts.
     const res = await this.provideTx(ctx, txes)
+    const persisted = broadcast.txes.length
     const processed = new Set<Ref<Tx>>()
     ctx.contextData.contextCache.set('processed', processed)
     for (const tx of txes) {
@@ -449,6 +452,11 @@ export class SpaceSecurityMiddleware extends BaseMiddleware implements Middlewar
       await this.processTx(ctx, tx, true)
     }
     for (const collaborator of removedCollaborators) this.handleChangeCollaborator(ctx, collaborator)
+    // Clients must receive security events before the committed changes. A query refresh
+    // that follows an already applied update drops the pending live query notification.
+    if (broadcast.txes.length > persisted) {
+      broadcast.txes.splice(start, 0, ...broadcast.txes.splice(persisted))
+    }
     return res
   }
 

@@ -38,8 +38,10 @@ import core, {
   type TxCreateDoc,
   type TxMixin,
   type TxUpdateDoc,
+  type TxWorkspaceEvent,
   type TypedSpace,
-  type WorkspaceUuid
+  type WorkspaceUuid,
+  WorkspaceEvent
 } from '@hcengineering/core'
 import platform, { PlatformError, Severity, Status, setMetadata } from '@hcengineering/platform'
 import {
@@ -51,6 +53,7 @@ import {
 import { getUpdatedAttributes, isSelfMembershipChange, SpacePermissionsMiddleware } from '../spacePermissions'
 import { SpaceSecurityMiddleware } from '../spaceSecurity'
 import { QueryJoinMiddleware } from '../queryJoin'
+import { BroadcastMiddleware } from '../broadcast'
 import contact from '@hcengineering/contact'
 
 const DOCUMENT = 'test:class:Document' as Ref<Class<Doc>>
@@ -308,8 +311,11 @@ const adminChanges: Array<[string, Record<string, unknown>]> = [
   ['owners push', { $push: { owners: MEMBER } }],
   ['members pull', { $pull: { members: OWNER } }],
   ['owners pull', { $pull: { owners: OWNER } }],
-  ['each', { $push: { members: { $each: [MEMBER] } } }],
-  ['in', { $pull: { members: { $in: [MEMBER] } } }],
+  ['each', { $push: { members: { $each: [OTHER] } } }],
+  ['each with self', { $push: { members: { $each: [MEMBER, OTHER] } } }],
+  ['each with slice', { $push: { members: { $each: [MEMBER], $slice: 1 } } }],
+  ['in', { $pull: { members: { $in: [OWNER] } } }],
+  ['in with self', { $pull: { members: { $in: [MEMBER, OWNER] } } }],
   ['unset owners', { $unset: { owners: true } }],
   ['unset members', { $unset: { members: true } }],
   ['dotted owner', { 'owners.0': MEMBER }],
@@ -407,6 +413,31 @@ describe('typed space administration', () => {
     else await expect(join).resolves.toEqual({})
     await expect(middleware.tx(ctx, [update({ $pull: { members: MEMBER } })])).resolves.toEqual({})
     await expect(middleware.tx(ctx, [update({ $push: { members: MEMBER }, name: 'also' })])).rejects.toEqual(forbidden)
+  })
+
+  it.each([false, true])('accepts attribute editor self membership forms (private=%s)', async (isPrivate) => {
+    const { security, storage, space } = await setup()
+    space.private = isPrivate
+    space.members = [OWNER]
+    const other = makeContext(OTHER)
+    await security.init(other)
+    // The Join button of a members cell sends $push/$each with $position.
+    const join = security.tx(other, [rawUpdate({ $push: { members: { $each: [OTHER], $position: 0 } } })])
+    if (isPrivate) {
+      await expect(join).rejects.toEqual(forbidden)
+      expect(storage.txes).toEqual([])
+      await expect(security.findAll(other, core.class.Space, { _id: SPACE })).resolves.toHaveLength(0)
+      return
+    }
+    await expect(join).resolves.toEqual({})
+    expect(space.members).toEqual([OTHER, OWNER])
+    await expect(security.findAll(other, core.class.Space, { _id: SPACE })).resolves.toHaveLength(1)
+    await expect(security.tx(other, [rawUpdate({ $pull: { members: { $in: [OTHER] } } })])).resolves.toEqual({})
+    expect(space.members).toEqual([OWNER])
+    await expect(
+      security.tx(other, [rawUpdate({ $push: { members: { $each: [OTHER, MEMBER], $position: 0 } } })])
+    ).rejects.toEqual(forbidden)
+    expect(space.members).toEqual([OWNER])
   })
 
   it.each([
@@ -955,6 +986,76 @@ describe('composed security pipeline', () => {
   })
 })
 
+describe('security event broadcast order', () => {
+  // Clients refresh queries on SecurityChange. If the refresh follows an already applied
+  // update, the live query drops the pending notification and the UI keeps stale data.
+  it.each([
+    ['archive', OWNER, { archived: true }, [OWNER, MEMBER]],
+    ['self-leave', MEMBER, { $pull: { members: MEMBER } }, [MEMBER]],
+    ['member removal', OWNER, { members: [OWNER] }, [MEMBER]],
+    ['self-join', OTHER, { $push: { members: OTHER } }, [OTHER]],
+    ['privacy', OWNER, { private: true }, [OWNER, MEMBER]]
+  ] as Array<[string, AccountUuid, Record<string, unknown>, AccountUuid[]]>)(
+    'sends security events before the committed %s',
+    async (_name, actor, operations, notified) => {
+      const { storage, context, ctx: setupCtx } = await setup()
+      const sent: Array<{ txes: Tx[], target?: AccountUuid }> = []
+      const broadcast = new BroadcastMiddleware(context, storage, {
+        broadcast: (_ctx, txes, target) => {
+          sent.push({ txes, target: target as AccountUuid | undefined })
+        },
+        broadcastSessions: () => {}
+      })
+      const permissions = await SpacePermissionsMiddleware.create(setupCtx, context, broadcast)
+      const security = await SpaceSecurityMiddleware.create(false, setupCtx, context, permissions)
+      const ctx = makeContext(actor)
+      for (const [index, account] of [OWNER, MEMBER, OTHER].entries()) {
+        ctx.contextData.socialStringsToUsers.set(`test:social:${index}` as PersonId, {
+          accontUuid: account,
+          role: AccountRole.User
+        })
+      }
+      await security.init(ctx)
+      const tx = rawUpdate(operations)
+      await security.tx(ctx, [tx])
+      await security.handleBroadcast(ctx)
+      const isEvent = (it: Tx): boolean =>
+        it._class === core.class.TxWorkspaceEvent && (it as TxWorkspaceEvent).event === WorkspaceEvent.SecurityChange
+      for (const account of notified) {
+        const txes = sent.find((it) => it.target === account)?.txes ?? []
+        const event = txes.findIndex(isEvent)
+        expect(event).toBeGreaterThanOrEqual(0)
+        expect(event).toBeLessThan(txes.findIndex((it) => it._id === tx._id))
+      }
+    }
+  )
+
+  it('keeps the order of earlier broadcasts and denies reads after a removal', async () => {
+    const { security, storage, ctx, space } = await setup()
+    space.private = true
+    space.members = [OWNER, MEMBER]
+    const owner = makeContext(OWNER)
+    await security.init(owner)
+    const earlier = rawUpdate({ name: 'earlier' })
+    owner.contextData.broadcast.txes.push(earlier)
+    jest.spyOn(storage, 'tx').mockImplementation(async (_ctx, txes) => {
+      owner.contextData.broadcast.txes.push(...txes)
+      for (const tx of txes) TxProcessor.updateDoc2Doc(space, tx as TxUpdateDoc<TypedSpace>)
+      return {}
+    })
+    const removal = update({ members: [OWNER] })
+    await security.tx(owner, [removal])
+    expect(owner.contextData.broadcast.txes.map((it) => it._class)).toEqual([
+      core.class.TxUpdateDoc,
+      core.class.TxWorkspaceEvent,
+      core.class.TxUpdateDoc
+    ])
+    expect(owner.contextData.broadcast.txes[0]).toBe(earlier)
+    expect(owner.contextData.broadcast.txes[2]).toBe(removal)
+    await expect(security.findAll(ctx, core.class.Space, { _id: SPACE })).resolves.toHaveLength(0)
+  })
+})
+
 describe('operation classification', () => {
   it.each(adminChanges)('extracts attributes for %s', (_name, operations) => {
     const attributes = getUpdatedAttributes(operations)
@@ -968,12 +1069,29 @@ describe('operation classification', () => {
     expect(getUpdatedAttributes({ $unset: null } as unknown as DocumentUpdate<Doc>)).toBe('all')
   })
 
-  it('requires the exact scalar membership form', () => {
+  it('requires a scalar or single-element self membership form', () => {
     expect(isSelfMembershipChange({ $push: { members: MEMBER } }, MEMBER)).toBe('join')
     expect(isSelfMembershipChange({ $pull: { members: MEMBER } }, MEMBER)).toBe('leave')
     expect(isSelfMembershipChange({ $push: { members: OTHER } }, MEMBER)).toBeUndefined()
-    const each: DocumentUpdate<Doc> = { $push: { members: { $each: [MEMBER] } } }
-    expect(isSelfMembershipChange(each, MEMBER)).toBeUndefined()
+    // Attribute editors use these forms for the Join button and member removal.
+    const forms: Array<[Record<string, unknown>, 'join' | 'leave' | undefined]> = [
+      [{ $push: { members: { $each: [MEMBER] } } }, 'join'],
+      [{ $push: { members: { $each: [MEMBER], $position: 0 } } }, 'join'],
+      [{ $pull: { members: { $in: [MEMBER] } } }, 'leave'],
+      [{ $push: { members: { $each: [MEMBER, OTHER] } } }, undefined],
+      [{ $push: { members: { $each: [OTHER], $position: 0 } } }, undefined],
+      [{ $push: { members: { $each: [MEMBER], $position: '0' } } }, undefined],
+      [{ $push: { members: { $each: [MEMBER], $slice: 1 } } }, undefined],
+      [{ $push: { members: { $in: [MEMBER] } } }, undefined],
+      [{ $pull: { members: { $each: [MEMBER] } } }, undefined],
+      [{ $pull: { members: { $in: [MEMBER], $position: 0 } } }, undefined],
+      [{ $pull: { members: { $in: [OWNER] } } }, undefined],
+      [{ $pull: { members: { $in: MEMBER } } }, undefined],
+      [{ $push: { members: { $each: [MEMBER] }, owners: MEMBER } }, undefined]
+    ]
+    for (const [operations, expected] of forms) {
+      expect(isSelfMembershipChange(operations as DocumentUpdate<Doc>, MEMBER)).toBe(expected)
+    }
   })
 })
 
