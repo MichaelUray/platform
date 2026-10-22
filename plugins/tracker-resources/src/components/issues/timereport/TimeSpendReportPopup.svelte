@@ -15,17 +15,19 @@
 <script lang="ts">
   import contact, { Employee, getCurrentEmployee } from '@hcengineering/contact'
   import { AttachedData, Class, DocumentUpdate, Ref, Space } from '@hcengineering/core'
+  import { translate } from '@hcengineering/platform'
   import type { IntlString } from '@hcengineering/platform'
   import presentation, { Card, getClient } from '@hcengineering/presentation'
   import { UserBox } from '@hcengineering/contact-resources'
   import { Issue, TimeReportDayType, TimeSpendReport, TrackerEvents } from '@hcengineering/tracker'
-  import { Button, DatePresenter, EditBox, Label } from '@hcengineering/ui'
+  import { addNotification, Button, DatePresenter, EditBox, Label, NotificationSeverity } from '@hcengineering/ui'
   import tracker from '../../../plugin'
   import { getTimeReportDate, getTimeReportDayType } from '../../../utils'
   import TitlePresenter from '../TitlePresenter.svelte'
   import TimeReportDayDropdown from './TimeReportDayDropdown.svelte'
   import { Analytics } from '@hcengineering/analytics'
   import { createTimeSpendReport } from './create-time-spend-report'
+  import { saveReportOnce } from './issue-timer'
 
   export let issue: Issue | undefined = undefined
   export let issueId: Ref<Issue> | undefined = issue?._id
@@ -55,15 +57,37 @@
 
   const client = getClient()
 
+  async function notify(label: IntlString, severity: NotificationSeverity): Promise<void> {
+    addNotification(await translate(label, {}), '', undefined as any, undefined, severity)
+  }
+
   async function create(): Promise<void> {
+    try {
+      await save()
+    } catch (err) {
+      await notify(tracker.string.TimeReportSaveFailed, NotificationSeverity.Error)
+      // Card keeps the dialog with the entered values open, so saving can be retried.
+      throw err
+    }
+  }
+
+  async function save(): Promise<void> {
     if (value === undefined) {
       if (space && issueId) {
-        await createTimeSpendReport(
-          client,
-          { _id: issueId, _class: issueClass, space, identifier: issue?.identifier },
-          data as AttachedData<TimeSpendReport>,
-          reportId
+        const target = { _id: issueId, _class: issueClass, space, identifier: issue?.identifier }
+        const id = reportId
+        if (id === undefined) {
+          await createTimeSpendReport(client, target, data as AttachedData<TimeSpendReport>)
+          return
+        }
+        // Another dialog or tab may submit the same timer report.
+        const result = await saveReportOnce(
+          async () => (await client.findOne(tracker.class.TimeSpendReport, { _id: id })) !== undefined,
+          async () => {
+            await createTimeSpendReport(client, target, data as AttachedData<TimeSpendReport>, id)
+          }
         )
+        if (result === 'exists') await notify(tracker.string.TimeReportAlreadySaved, NotificationSeverity.Info)
       }
     } else {
       const ops: DocumentUpdate<TimeSpendReport> = {}

@@ -12,6 +12,7 @@
   import { writable } from 'svelte/store'
   import { generateIssueShortLink, issueLinkFragmentProvider } from '../../../issues'
   import tracker from '../../../plugin'
+  import SelectDependencyIssuePopup from '../SelectDependencyIssuePopup.svelte'
   import TimeSpendReportPopup from './TimeSpendReportPopup.svelte'
   import {
     discardIssueTimer,
@@ -37,6 +38,7 @@
   let now = Date.now()
   let busy = false
   let reviewing = false
+  let missingReportId: string | undefined
   let unavailable = false
   let tick: ReturnType<typeof setInterval> | undefined
 
@@ -125,17 +127,21 @@
     }
     // A report saved earlier, e.g. from another tab, must not be created twice.
     if (await finishIfSaved(stopped)) return
-    let target = await client.findOne(tracker.class.Issue, { _id: stopped.issueId as Ref<Issue> })
+    const target = await client.findOne(tracker.class.Issue, { _id: stopped.issueId as Ref<Issue> })
     if (target === undefined) {
+      // Keep the stopped time; the user can retry, log it to an issue of their choice or discard it.
+      missingReportId = stopped.reportId
       await notify(tracker.string.TimerIssueUnavailable, {
         issue: stopped.identifier,
         time: formatElapsedTime(getElapsedTime(stopped.startedAt, stopped.stoppedAt ?? stopped.startedAt))
       })
-      // Offer to keep the time on the issue that is open now instead of losing it.
-      if (issue._id === stopped.issueId) return
-      target = issue
+      return
     }
-    const timed = stopped
+    missingReportId = undefined
+    openReportPopup(stopped, target, hours)
+  }
+
+  function openReportPopup(timed: RunningIssueTimer, target: Issue, hours: number): void {
     reviewing = true
     showPopup(
       TimeSpendReportPopup,
@@ -159,6 +165,16 @@
           })
       }
     )
+  }
+
+  /** Let the user pick the issue to log a stopped timer to when its own issue is unavailable. */
+  function logToAnotherIssue(): void {
+    const timed = $timer
+    if (timed?.stoppedAt === undefined || busy || reviewing) return
+    showPopup(SelectDependencyIssuePopup, {}, 'top', (picked: Issue | undefined | null) => {
+      if (picked === undefined || picked === null) return
+      openReportPopup(timed, picked, getStoppedTimerHours(timed))
+    })
   }
 
   async function updateTimer(discard = false): Promise<void> {
@@ -235,6 +251,15 @@
       disabled={busy || reviewing || unavailable}
       on:click={() => updateTimer()}
     />
+    {#if $timer !== undefined && $timer.stoppedAt !== undefined && $timer.reportId === missingReportId}
+      <Button
+        kind={'ghost'}
+        size={'medium'}
+        label={tracker.string.LogTimerToAnotherIssue}
+        disabled={busy || reviewing || unavailable}
+        on:click={logToAnotherIssue}
+      />
+    {/if}
     {#if $timer !== undefined}
       <Button
         kind={'ghost'}

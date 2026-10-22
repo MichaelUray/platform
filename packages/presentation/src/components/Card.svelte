@@ -83,10 +83,17 @@
       okProcessing = true
       const r = okAction()
       if (r instanceof Promise) {
-        r.then(() => {
-          okProcessing = false
-          dispatch('close')
-        })
+        r.then(
+          () => {
+            okProcessing = false
+            dispatch('close')
+          },
+          (err) => {
+            // Keep the dialog and its values open so the action can be retried.
+            okProcessing = false
+            console.error(err)
+          }
+        )
       } else {
         okProcessing = false
         dispatch('close')

@@ -97,6 +97,24 @@ export function getStoppedTimerHours (timer: RunningIssueTimer): number {
   return getReportHours(getElapsedTime(timer.startedAt, timer.stoppedAt ?? timer.startedAt))
 }
 
+/**
+ * Create a report under a fixed ID at most once. A report that already exists, e.g. submitted from a second dialog or
+ * tab, counts as saved; so does a failed create (duplicate key, lost response) after which the report exists.
+ */
+export async function saveReportOnce (
+  exists: () => Promise<boolean>,
+  create: () => Promise<void>
+): Promise<'created' | 'exists'> {
+  if (await exists()) return 'exists'
+  try {
+    await create()
+    return 'created'
+  } catch (err) {
+    if (await exists().catch(() => false)) return 'exists'
+    throw err
+  }
+}
+
 let pending: Promise<unknown> = Promise.resolve()
 
 /** Serialize timer changes across browser tabs, or within this window if Web Locks are unavailable. */
