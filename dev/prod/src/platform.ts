@@ -496,7 +496,10 @@ export async function configurePlatform() {
   setMetadata(presentation.metadata.MailUrl, config.MAIL_URL)
   setMetadata(presentation.metadata.SignupUrl, config.SIGNUP_URL ?? 'https://huly.io/signup')
 
-  const disabledFeatures = [...(config.DISABLED_FEATURES ?? '').split(','), ...(myBranding.disabledFeatures ?? '').split(',')]
+  const disabledFeatures = [
+    ...(config.DISABLED_FEATURES ?? '').split(','),
+    ...(myBranding.disabledFeatures ?? '').split(',')
+  ]
     .map(it => it.trim())
     .filter(it => it.length > 0)
   setMetadata(presentation.metadata.DisabledFeatures, new Set(disabledFeatures))

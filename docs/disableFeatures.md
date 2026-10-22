@@ -44,3 +44,10 @@ it:
   }
 }
 ```
+
+Note that per-branding `disabledFeatures` only affect the client: they hide
+UI surfaces and filter the model loaded by the browser or desktop client
+for that host. They are not an access control: server-side services do
+not read this setting, and users of one brand can reach the same
+workspaces and data through any other host of the installation. Use
+separate installations when features must be enforced on the server.
