@@ -66,7 +66,7 @@
       await save()
     } catch (err) {
       await notify(tracker.string.TimeReportSaveFailed, NotificationSeverity.Error)
-      // Card keeps the dialog with the entered values open, so saving can be retried.
+      // With a stable report ID (timer path) saving is idempotent, so Card keeps the dialog open for a retry.
       throw err
     }
   }
@@ -117,6 +117,7 @@
   label={value === undefined ? tracker.string.TimeSpendReportAdd : tracker.string.TimeSpendReportValue}
   {canSave}
   okAction={create}
+  retryOnError={value === undefined && reportId !== undefined}
   gap={'gapV-4'}
   on:close
   okLabel={value === undefined ? presentation.string.Create : presentation.string.Save}
