@@ -3,18 +3,21 @@
   import { getCurrentEmployee } from '@hcengineering/contact'
   import { generateId, getCurrentAccount } from '@hcengineering/core'
   import type { Ref } from '@hcengineering/core'
-  import { setPlatformStatus, unknownError } from '@hcengineering/platform'
+  import { setPlatformStatus, translate, unknownError } from '@hcengineering/platform'
+  import type { IntlString } from '@hcengineering/platform'
   import { getClient, getCurrentWorkspaceUuid } from '@hcengineering/presentation'
   import type { Issue, TimeSpendReport } from '@hcengineering/tracker'
-  import { Button, Label } from '@hcengineering/ui'
-  import { onMount } from 'svelte'
+  import { addNotification, Button, Label, navigate, NotificationSeverity, showPopup } from '@hcengineering/ui'
+  import { onDestroy, onMount } from 'svelte'
   import { writable } from 'svelte/store'
+  import { generateIssueShortLink, issueLinkFragmentProvider } from '../../../issues'
   import tracker from '../../../plugin'
-  import { createTimeSpendReport } from './create-time-spend-report'
+  import TimeSpendReportPopup from './TimeSpendReportPopup.svelte'
   import {
     discardIssueTimer,
     formatElapsedTime,
     getElapsedTime,
+    getStoppedTimerHours,
     readIssueTimer,
     startIssueTimer,
     stopIssueTimer,
@@ -24,13 +27,18 @@
 
   export let issue: Issue
 
+  // Other timer controls in this window; the storage event only reaches other tabs.
+  const changedEvent = 'tracker:issue-timer-changed'
+
   const client = getClient()
   const employee = getCurrentEmployee()
   const key = `tracker:issue-timer:${getCurrentWorkspaceUuid()}:${getCurrentAccount().uuid}`
   const timer = writable<RunningIssueTimer | undefined>(undefined)
   let now = Date.now()
   let busy = false
+  let reviewing = false
   let unavailable = false
+  let tick: ReturnType<typeof setInterval> | undefined
 
   function refresh(): void {
     try {
@@ -43,87 +51,196 @@
     }
   }
 
+  function notifyChanged(): void {
+    window.dispatchEvent(new Event(changedEvent))
+  }
+
+  async function notify(label: IntlString, params: Record<string, any> = {}): Promise<void> {
+    addNotification(await translate(label, params), '', undefined as any, undefined, NotificationSeverity.Warning)
+  }
+
   onMount(() => {
     refresh()
-    const interval = setInterval(refresh, 1000)
     window.addEventListener('storage', refresh)
+    window.addEventListener(changedEvent, refresh)
     return () => {
-      clearInterval(interval)
       window.removeEventListener('storage', refresh)
+      window.removeEventListener(changedEvent, refresh)
     }
   })
 
+  // Tick only while a timer runs; changes from other tabs arrive through the storage event.
+  $: running = $timer !== undefined && $timer.stoppedAt === undefined
+  $: if (running && tick === undefined) {
+    tick = setInterval(() => (now = Date.now()), 1000)
+  } else if (!running && tick !== undefined) {
+    clearInterval(tick)
+    tick = undefined
+  }
+  onDestroy(() => {
+    if (tick !== undefined) clearInterval(tick)
+  })
+
+  async function startTimer(): Promise<void> {
+    let started = false
+    await withIssueTimerLock(key, async () => {
+      started = startIssueTimer(localStorage, key, {
+        issueId: issue._id,
+        identifier: issue.identifier,
+        reportId: generateId(),
+        startedAt: Date.now()
+      })
+    })
+    // Another tab may have started a timer after this control was rendered.
+    if (!started) await notify(tracker.string.TimerAlreadyRunning)
+  }
+
+  async function reportExists(id: Ref<TimeSpendReport>): Promise<boolean> {
+    return (await client.findOne(tracker.class.TimeSpendReport, { _id: id })) !== undefined
+  }
+
+  async function finishIfSaved(stopped: RunningIssueTimer): Promise<boolean> {
+    const saved = await reportExists(stopped.reportId as Ref<TimeSpendReport>)
+    if (saved) {
+      await withIssueTimerLock(key, async () => {
+        discardIssueTimer(localStorage, key, stopped.reportId)
+      })
+    }
+    return saved
+  }
+
+  /** Stop the timer and let the user review the measured time, description and date before saving. */
+  async function stopTimer(reportId: string): Promise<void> {
+    let stopped: RunningIssueTimer | undefined
+    await withIssueTimerLock(key, async () => {
+      stopped = stopIssueTimer(localStorage, key, reportId)
+    })
+    if (stopped === undefined) return
+    const hours = getStoppedTimerHours(stopped)
+    if (hours === 0) {
+      await withIssueTimerLock(key, async () => {
+        discardIssueTimer(localStorage, key, reportId)
+      })
+      return
+    }
+    // A report saved earlier, e.g. from another tab, must not be created twice.
+    if (await finishIfSaved(stopped)) return
+    let target = await client.findOne(tracker.class.Issue, { _id: stopped.issueId as Ref<Issue> })
+    if (target === undefined) {
+      await notify(tracker.string.TimerIssueUnavailable, {
+        issue: stopped.identifier,
+        time: formatElapsedTime(getElapsedTime(stopped.startedAt, stopped.stoppedAt ?? stopped.startedAt))
+      })
+      // Offer to keep the time on the issue that is open now instead of losing it.
+      if (issue._id === stopped.issueId) return
+      target = issue
+    }
+    const timed = stopped
+    reviewing = true
+    showPopup(
+      TimeSpendReportPopup,
+      {
+        issue: target,
+        issueId: target._id,
+        issueClass: target._class,
+        space: target.space,
+        assignee: target.assignee,
+        reportId: timed.reportId,
+        initialValue: { value: hours, date: timed.startedAt }
+      },
+      'top',
+      () => {
+        void finishIfSaved(timed)
+          .catch((err) => setPlatformStatus(unknownError(err)))
+          .finally(() => {
+            reviewing = false
+            refresh()
+            notifyChanged()
+          })
+      }
+    )
+  }
+
   async function updateTimer(discard = false): Promise<void> {
-    if (busy || unavailable) return
+    if (busy || reviewing || unavailable) return
     busy = true
-    // Capture the issue before waiting for the timer lock.
-    const currentIssue = issue
     const displayedTimer = $timer
     try {
-      await withIssueTimerLock(key, async () => {
-        const running = readIssueTimer(localStorage, key)
-        if (displayedTimer === undefined) {
-          if (discard) return
-          startIssueTimer(localStorage, key, {
-            issueId: currentIssue._id,
-            identifier: currentIssue.identifier,
-            reportId: generateId(),
-            startedAt: Date.now()
-          })
-        } else if (running?.reportId !== displayedTimer.reportId) {
-          return
-        } else if (discard) {
+      if (displayedTimer === undefined) {
+        await startTimer()
+      } else if (discard) {
+        await withIssueTimerLock(key, async () => {
           discardIssueTimer(localStorage, key, displayedTimer.reportId)
-        } else {
-          await stopIssueTimer(localStorage, key, running.issueId, async (stopped, hours) => {
-            const id = stopped.reportId as Ref<TimeSpendReport>
-            // Retry safely if the server saved the report but its response was lost.
-            if ((await client.findOne(tracker.class.TimeSpendReport, { _id: id })) === undefined) {
-              const timedIssue = await client.findOne(tracker.class.Issue, { _id: stopped.issueId as Ref<Issue> })
-              if (timedIssue === undefined) throw new Error(`Issue ${stopped.identifier} is unavailable`)
-              await createTimeSpendReport(
-                client,
-                timedIssue,
-                { employee, date: stopped.startedAt, value: hours, description: '' },
-                id
-              )
-            }
-          })
-        }
-      })
+        })
+      } else {
+        await stopTimer(displayedTimer.reportId)
+      }
     } catch (err) {
       void setPlatformStatus(unknownError(err))
     } finally {
       busy = false
       refresh()
+      notifyChanged()
     }
   }
 
+  async function openTimedIssue(): Promise<void> {
+    const timedIssueId = $timer?.issueId as Ref<Issue> | undefined
+    if (timedIssueId === undefined) return
+    const timedIssue = await client.findOne(tracker.class.Issue, { _id: timedIssueId })
+    if (timedIssue === undefined) {
+      await notify(tracker.string.TimerIssueUnavailable, {
+        issue: $timer?.identifier,
+        time: $timer === undefined ? '' : formatElapsedTime(getElapsedTime($timer.startedAt, $timer.stoppedAt ?? now))
+      })
+      return
+    }
+    navigate(await issueLinkFragmentProvider(timedIssue))
+  }
+
+  $: otherIssue = $timer !== undefined && $timer.issueId !== issue._id
   $: label =
     $timer === undefined
       ? tracker.string.StartTimer
       : $timer.stoppedAt === undefined
-        ? tracker.string.StopTimer
-        : tracker.string.SaveTimer
+        ? otherIssue
+          ? tracker.string.StopTimerOnIssue
+          : tracker.string.StopTimer
+        : otherIssue
+          ? tracker.string.SaveTimerOnIssue
+          : tracker.string.SaveTimer
 </script>
 
 {#if employee != null}
   <div class="flex-row-center gap-2">
     {#if $timer !== undefined}
-      {#if $timer.issueId !== issue._id}
-        <span class="nowrap">
+      {#if otherIssue}
+        <a
+          class="nowrap"
+          href={generateIssueShortLink($timer.identifier)}
+          on:click|preventDefault={() => {
+            void openTimedIssue().catch((err) => setPlatformStatus(unknownError(err)))
+          }}
+        >
           <Label label={tracker.string.TimerRunningOnIssue} params={{ issue: $timer.identifier }} />
-        </span>
+        </a>
       {/if}
       <span class="nowrap">{formatElapsedTime(getElapsedTime($timer.startedAt, $timer.stoppedAt ?? now))}</span>
     {/if}
-    <Button kind={'ghost'} size={'medium'} {label} disabled={busy || unavailable} on:click={() => updateTimer()} />
+    <Button
+      kind={'ghost'}
+      size={'medium'}
+      {label}
+      labelParams={{ issue: $timer?.identifier }}
+      disabled={busy || reviewing || unavailable}
+      on:click={() => updateTimer()}
+    />
     {#if $timer !== undefined}
       <Button
         kind={'ghost'}
         size={'medium'}
         label={tracker.string.DiscardTimer}
-        disabled={busy || unavailable}
+        disabled={busy || reviewing || unavailable}
         on:click={() => updateTimer(true)}
       />
     {/if}

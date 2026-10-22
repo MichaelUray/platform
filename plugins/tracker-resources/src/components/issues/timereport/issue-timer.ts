@@ -67,26 +67,34 @@ export function startIssueTimer (storage: TimerStorage, key: string, timer: Runn
   return true
 }
 
-/** Discard only the displayed timer, without saving a report. Call under the user's timer lock. */
+/** Remove only the displayed timer, after its report is saved or to discard it. Call under the user's timer lock. */
 export function discardIssueTimer (storage: TimerStorage, key: string, reportId: string): void {
   if (readIssueTimer(storage, key)?.reportId === reportId) storage.removeItem(key)
 }
 
-/** Freeze the duration before saving and retain it on failure. Call under the user's timer lock. */
-export async function stopIssueTimer (
+/**
+ * Freeze the elapsed time so the report can be reviewed without the timer running on, and keep it until the report
+ * is saved or the timer is discarded. Call under the user's timer lock.
+ */
+export function stopIssueTimer (
   storage: TimerStorage,
   key: string,
-  issueId: string,
-  save: (timer: RunningIssueTimer, hours: number) => Promise<void>,
+  reportId: string,
   now: number = Date.now()
-): Promise<void> {
+): RunningIssueTimer | undefined {
   const timer = readIssueTimer(storage, key)
-  if (timer === undefined || timer.issueId !== issueId) return
-  timer.stoppedAt ??= Math.max(timer.startedAt, now)
-  storage.setItem(key, JSON.stringify(timer))
-  const hours = getReportHours(getElapsedTime(timer.startedAt, timer.stoppedAt))
-  if (hours > 0) await save(timer, hours)
-  storage.removeItem(key)
+  // The caller passes the timer it displayed; another tab may have stopped, saved or replaced it before the lock.
+  if (timer === undefined || timer.reportId !== reportId) return
+  if (timer.stoppedAt === undefined) {
+    timer.stoppedAt = Math.max(timer.startedAt, now)
+    storage.setItem(key, JSON.stringify(timer))
+  }
+  return timer
+}
+
+/** Report hours of a stopped timer, rounded like getReportHours. */
+export function getStoppedTimerHours (timer: RunningIssueTimer): number {
+  return getReportHours(getElapsedTime(timer.startedAt, timer.stoppedAt ?? timer.startedAt))
 }
 
 let pending: Promise<unknown> = Promise.resolve()

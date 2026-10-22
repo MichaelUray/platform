@@ -36,11 +36,14 @@
   export let value: TimeSpendReport | undefined
   export let placeholder: IntlString = tracker.string.TimeSpendReportValue
   export let defaultTimeReportDay: TimeReportDayType = TimeReportDayType.PreviousWorkDay
+  // Prefill a new report, e.g. with the time measured by an issue timer, and reuse its ID so retries cannot duplicate it.
+  export let initialValue: Partial<Pick<TimeSpendReport, 'date' | 'value' | 'description'>> | undefined = undefined
+  export let reportId: Ref<TimeSpendReport> | undefined = undefined
 
   const data = {
-    date: value?.date ?? getTimeReportDate(defaultTimeReportDay),
-    description: value?.description ?? '',
-    value: value?.value,
+    date: value?.date ?? initialValue?.date ?? getTimeReportDate(defaultTimeReportDay),
+    description: value?.description ?? initialValue?.description ?? '',
+    value: value?.value ?? initialValue?.value,
     employee: value?.employee ?? getCurrentEmployee() ?? assignee ?? null
   }
 
@@ -58,7 +61,8 @@
         await createTimeSpendReport(
           client,
           { _id: issueId, _class: issueClass, space, identifier: issue?.identifier },
-          data as AttachedData<TimeSpendReport>
+          data as AttachedData<TimeSpendReport>,
+          reportId
         )
       }
     } else {

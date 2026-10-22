@@ -5,6 +5,7 @@ import {
   formatElapsedTime,
   getElapsedTime,
   getReportHours,
+  getStoppedTimerHours,
   readIssueTimer,
   startIssueTimer,
   stopIssueTimer,
@@ -83,14 +84,18 @@ describe('persisted issue timer', () => {
     expect(readIssueTimer(storage, key)).toEqual(replacement)
   })
 
-  it('can discard after a failed save without retrying the report', async () => {
+  it('can discard a stopped timer whose report was not saved', () => {
     startIssueTimer(storage, key, timer)
-    const save = jest.fn().mockRejectedValue(new Error('Issue is unavailable'))
-    await expect(stopIssueTimer(storage, key, timer.issueId, save, 3601000)).rejects.toThrow('Issue is unavailable')
+    stopIssueTimer(storage, key, timer.reportId, 3601000)
     discardIssueTimer(storage, key, timer.reportId)
     expect(readIssueTimer(storage, key)).toBeUndefined()
-    expect(save).toHaveBeenCalledTimes(1)
     expect(startIssueTimer(storage, key, { ...timer, reportId: 'next-report' })).toBe(true)
+  })
+
+  it('refuses to start while a stopped timer still awaits its report', () => {
+    startIssueTimer(storage, key, timer)
+    stopIssueTimer(storage, key, timer.reportId, 3601000)
+    expect(startIssueTimer(storage, key, { ...timer, issueId: 'another', reportId: 'next-report' })).toBe(false)
   })
 
   it.each(['invalid json', '{}', '{"startedAt":-1}', 'null'])('ignores invalid saved data: %s', (value) => {
@@ -98,85 +103,80 @@ describe('persisted issue timer', () => {
     expect(readIssueTimer(storage, key)).toBeUndefined()
   })
 
-  it('saves the elapsed duration once and clears the timer after success', async () => {
+  it('freezes the elapsed duration when stopped and keeps the timer until the report is saved', () => {
     startIssueTimer(storage, key, timer)
-    const save = jest.fn().mockResolvedValue(undefined)
-    await stopIssueTimer(storage, key, 'issue', save, 3601000)
-    expect(save).toHaveBeenCalledWith({ ...timer, stoppedAt: 3601000 }, 1)
-    expect(readIssueTimer(storage, key)).toBeUndefined()
-    await stopIssueTimer(storage, key, 'issue', save, 7201000)
-    expect(save).toHaveBeenCalledTimes(1)
-  })
-
-  it('retains the stopped duration and report ID when saving fails so retry does not add time', async () => {
-    startIssueTimer(storage, key, timer)
-    const save = jest.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(undefined)
-    await expect(stopIssueTimer(storage, key, 'issue', save, 3601000)).rejects.toThrow('Offline')
+    const stopped = stopIssueTimer(storage, key, timer.reportId, 3601000)
+    expect(stopped).toEqual({ ...timer, stoppedAt: 3601000 })
     expect(readIssueTimer(storage, key)).toEqual({ ...timer, stoppedAt: 3601000 })
-    await stopIssueTimer(storage, key, 'issue', save, 7201000)
-    expect(save).toHaveBeenLastCalledWith({ ...timer, stoppedAt: 3601000 }, 1)
+    expect(getStoppedTimerHours(stopped as RunningIssueTimer)).toBe(1)
+    discardIssueTimer(storage, key, timer.reportId)
     expect(readIssueTimer(storage, key)).toBeUndefined()
   })
 
-  it('ignores a mismatched issue ID', async () => {
+  it('keeps the first stop time when stopping again, e.g. after the report popup was cancelled', () => {
     startIssueTimer(storage, key, timer)
-    const save = jest.fn()
-    await stopIssueTimer(storage, key, 'another', save, 3601000)
-    expect(save).not.toHaveBeenCalled()
-    expect(readIssueTimer(storage, key)).toEqual(timer)
+    stopIssueTimer(storage, key, timer.reportId, 3601000)
+    expect(stopIssueTimer(storage, key, timer.reportId, 7201000)).toEqual({ ...timer, stoppedAt: 3601000 })
   })
 
-  it('stops by the stored issue ID even when the stored identifier is stale', async () => {
+  it('reports long durations unchanged so the user can correct them in the report popup', () => {
+    startIssueTimer(storage, key, timer)
+    const stopped = stopIssueTimer(storage, key, timer.reportId, timer.startedAt + 13 * 3600000)
+    expect(getStoppedTimerHours(stopped as RunningIssueTimer)).toBe(13)
+  })
+
+  it('ignores a stop for a timer that another tab saved or replaced', () => {
+    expect(stopIssueTimer(storage, key, timer.reportId, 3601000)).toBeUndefined()
+    const replacement = { ...timer, reportId: 'next-report' }
+    startIssueTimer(storage, key, replacement)
+    expect(stopIssueTimer(storage, key, timer.reportId, 3601000)).toBeUndefined()
+    expect(readIssueTimer(storage, key)).toEqual(replacement)
+  })
+
+  it('stops by the stored report ID even when the stored identifier is stale', () => {
     const movedTimer = { ...timer, identifier: 'OLD-1' }
     startIssueTimer(storage, key, movedTimer)
-    const save = jest.fn().mockResolvedValue(undefined)
-    await stopIssueTimer(storage, key, movedTimer.issueId, save, 3601000)
-    expect(save).toHaveBeenCalledWith({ ...movedTimer, stoppedAt: 3601000 }, 1)
-    expect(readIssueTimer(storage, key)).toBeUndefined()
+    expect(stopIssueTimer(storage, key, movedTimer.reportId, 3601000)).toEqual({ ...movedTimer, stoppedAt: 3601000 })
   })
 
-  it('does not create a zero-duration report', async () => {
+  it('reports zero hours for a zero-duration timer', () => {
     startIssueTimer(storage, key, timer)
-    const save = jest.fn()
-    await stopIssueTimer(storage, key, 'issue', save, timer.startedAt)
-    expect(save).not.toHaveBeenCalled()
-    expect(readIssueTimer(storage, key)).toBeUndefined()
+    const stopped = stopIssueTimer(storage, key, timer.reportId, timer.startedAt)
+    expect(getStoppedTimerHours(stopped as RunningIssueTimer)).toBe(0)
   })
 
-  it('serializes overlapping stops so only one report is saved', async () => {
+  it('serializes overlapping changes so only one stop wins', async () => {
     startIssueTimer(storage, key, timer)
-    let finishSave: () => void = () => {}
-    const save = jest.fn(async () => {
-      await new Promise<void>((resolve) => {
-        finishSave = resolve
-      })
-    })
+    let finish: () => void = () => {}
+    const results: Array<RunningIssueTimer | undefined> = []
     const first = withIssueTimerLock(key, async () => {
-      await stopIssueTimer(storage, key, 'issue', save, 3601000)
+      results.push(stopIssueTimer(storage, key, timer.reportId, 3601000))
+      await new Promise<void>((resolve) => {
+        finish = resolve
+      })
+      discardIssueTimer(storage, key, timer.reportId)
     })
     const second = withIssueTimerLock(key, async () => {
-      await stopIssueTimer(storage, key, 'issue', save, 7201000)
+      results.push(stopIssueTimer(storage, key, timer.reportId, 7201000))
     })
     await Promise.resolve()
-    expect(save).toHaveBeenCalledTimes(1)
-    finishSave()
+    expect(results).toHaveLength(1)
+    finish()
     await Promise.all([first, second])
-    expect(save).toHaveBeenCalledTimes(1)
+    expect(results).toEqual([{ ...timer, stoppedAt: 3601000 }, undefined])
     expect(readIssueTimer(storage, key)).toBeUndefined()
   })
 
-  it('releases the lock after a failed save', async () => {
-    startIssueTimer(storage, key, timer)
-    const save = jest.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(undefined)
+  it('releases the lock after a failed action', async () => {
     await expect(
       withIssueTimerLock(key, async () => {
-        await stopIssueTimer(storage, key, 'issue', save, 3601000)
+        throw new Error('Offline')
       })
     ).rejects.toThrow('Offline')
+    startIssueTimer(storage, key, timer)
     await withIssueTimerLock(key, async () => {
-      await stopIssueTimer(storage, key, 'issue', save, 7201000)
+      discardIssueTimer(storage, key, timer.reportId)
     })
-    expect(save).toHaveBeenLastCalledWith({ ...timer, stoppedAt: 3601000 }, 1)
     expect(readIssueTimer(storage, key)).toBeUndefined()
   })
 })
