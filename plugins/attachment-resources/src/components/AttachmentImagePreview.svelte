@@ -88,6 +88,7 @@
     fit={dimensions.fit}
     width={dimensions.width}
     height={dimensions.height}
+    responsive
     blurhash={value.metadata?.thumbnail?.blurhash}
     showLoading={loading}
     on:load={handleLoad}
@@ -99,9 +100,14 @@
 <style lang="scss">
   .container {
     display: inline-flex;
+    max-width: 100%;
     background-color: var(--theme-link-preview-bg-color);
     border-radius: 0.75rem;
     overflow: hidden;
+
+    :global(img) {
+      object-position: top;
+    }
 
     .image-overlay {
       position: absolute;

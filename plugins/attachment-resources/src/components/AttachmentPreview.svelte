@@ -112,7 +112,7 @@
   }
 
   .content {
-    max-width: 25rem;
+    max-width: min(25rem, 100%);
     max-height: 25rem;
     scroll-snap-align: start;
   }
