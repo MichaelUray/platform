@@ -37,12 +37,14 @@
     draftsStore,
     fetchLinkPreviewDetails,
     getClient,
+    getImageSize,
+    imageSizeToRatio,
     isLinkPreviewEnabled,
     uploadFile,
     LinkPreviewAttachmentMetadata,
     generateFileId
   } from '@hcengineering/presentation'
-  import { EmptyMarkup, isEmptyMarkup } from '@hcengineering/text'
+  import { EmptyMarkup, isEmptyMarkup, jsonToMarkup, MarkupNodeType } from '@hcengineering/text'
   import textEditor, { type RefAction } from '@hcengineering/text-editor'
   import { AttachIcon, ReferenceInput } from '@hcengineering/text-editor-resources'
   import { Loading, type AnySvelteComponent } from '@hcengineering/ui'
@@ -53,6 +55,7 @@
   } from '@hcengineering/uploader'
   import { createEventDispatcher, onDestroy, tick } from 'svelte'
   import attachment from '../plugin'
+  import { getInlineImageFiles, getVisibleAttachments, reconcileInlineAttachments } from '../attachment-files'
   import AttachmentPresenter from './AttachmentPresenter.svelte'
 
   export let objectId: Ref<Doc>
@@ -68,6 +71,7 @@
   export let shouldSaveDraft: boolean = false
   export let attachments: IdMap<Attachment> = new Map()
   export let loading = false
+  export let inlineImages = false
   export let focusIndex: number = -1
   export let autofocus = false
   export function submit(): void {
@@ -98,7 +102,13 @@
   const maxLinkPreviewCount = 3
   const urlSet = new Set<string>()
 
-  let progress = false
+  let fileUploads = 0
+  const knownInlineFiles = new Set<Ref<PlatformBlob>>()
+
+  $: inlineFiles = inlineImages ? getInlineImageFiles(content) : new Set<Ref<PlatformBlob>>()
+  $: inlineFiles.forEach((file) => knownInlineFiles.add(file))
+  $: visibleAttachments = getVisibleAttachments(attachments.values(), inlineFiles, inlineImages)
+
   let loadingLinks = false
 
   let refContainer: HTMLElement
@@ -197,6 +207,30 @@
     }
   }
 
+  async function attachInlineImage(file: File): Promise<void> {
+    try {
+      const { uuid, metadata } = await uploadFile(file)
+      // Preserve ownership in drafts even if the image node is removed before the next send.
+      await _createAttachment(uuid, file.name, file, { ...metadata, inlineImage: true })
+      const size = await getImageSize(file)
+      refInput.insertMarkup(
+        jsonToMarkup({
+          type: MarkupNodeType.image,
+          attrs: {
+            'file-id': uuid,
+            'data-file-type': file.type,
+            alt: file.name,
+            title: file.name,
+            width: imageSizeToRatio(size.width, size.pixelRatio)
+          }
+        })
+      )
+      await tick()
+    } catch (err) {
+      void setPlatformStatus(unknownError(err))
+    }
+  }
+
   async function _createAttachment(
     file: Ref<PlatformBlob>,
     name: string,
@@ -240,39 +274,20 @@
   }
 
   async function fileSelected(): Promise<void> {
-    progress = true
-    await tick()
-    const list = inputFile.files
-    if (list === null || list.length === 0) return
-    const limiter = new RateLimiter(10)
-    for (let index = 0; index < list.length; index++) {
-      const file = list.item(index)
-      if (file !== null) {
-        await limiter.add(() => createAttachment(file))
-      }
-    }
-    await limiter.waitProcessing()
+    await loadFiles(Array.from(inputFile.files ?? []))
     inputFile.value = ''
-    progress = false
   }
 
   async function fileDrop(e: DragEvent): Promise<void> {
-    const list = e.dataTransfer?.files
-    const limiter = new RateLimiter(10)
-
-    if (list === undefined || list.length === 0) return
-    progress = true
-    for (let index = 0; index < list.length; index++) {
-      const file = list.item(index)
-      if (file !== null) {
-        await limiter.add(() => createAttachment(file))
-      }
-    }
-    await limiter.waitProcessing()
-    progress = false
+    const files = Array.from(e.dataTransfer?.files ?? [])
+    if (files.length === 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    await loadFiles(files)
   }
 
   async function removeAttachment(attachment: Attachment): Promise<void> {
+    if (inlineFiles.has(attachment.file)) return
     removedAttachments.add(attachment)
     attachments.delete(attachment._id)
     attachments = attachments
@@ -325,9 +340,13 @@
     return attachments.size === 0 && isEmptyMarkup(content)
   }
 
-  export async function createAttachments(): Promise<void> {
+  export async function createAttachments(message: Markup = content): Promise<void> {
     if (saved) {
       return
+    }
+    if (inlineImages) {
+      reconcileInlineAttachments(message, attachments, removedAttachments, newAttachments, knownInlineFiles)
+      attachments = attachments
     }
     saved = true
     const limiter = new RateLimiter(10)
@@ -349,7 +368,7 @@
 
   async function onMessage(event: CustomEvent): Promise<void> {
     loading = true
-    await createAttachments()
+    await createAttachments(event.detail)
     loading = false
     dispatch('message', { message: event.detail, attachments: attachments.size })
   }
@@ -405,15 +424,19 @@
     loadingLinks = false
   }
 
-  async function loadFiles(evt: ClipboardEvent): Promise<void> {
-    progress = true
-    const files = (evt.clipboardData?.files ?? []) as File[]
-
-    for (const file of files) {
-      await createAttachment(file)
+  async function loadFiles(files: File[]): Promise<void> {
+    fileUploads++
+    try {
+      for (const file of files) {
+        if (inlineImages && file.type.startsWith('image/')) {
+          await attachInlineImage(file)
+        } else {
+          await createAttachment(file)
+        }
+      }
+    } finally {
+      fileUploads--
     }
-
-    progress = false
   }
 
   function pasteAction(_: any, evt: ClipboardEvent): boolean {
@@ -429,10 +452,10 @@
     if (!allowed) {
       return false
     }
-    const hasFiles = Array.from(evt.clipboardData?.items ?? []).some((i) => i.kind === 'file')
+    const files = Array.from(evt.clipboardData?.files ?? [])
 
-    if (hasFiles) {
-      void loadFiles(evt)
+    if (files.length > 0) {
+      void loadFiles(files)
       return true
     }
 
@@ -477,12 +500,14 @@
     style="display: none"
     on:change={fileSelected}
   />
+  <!-- Route file drops from the editor and the attachment header through the same upload flow. -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
     class="flex-col"
     on:dragover|preventDefault={() => {}}
     on:dragleave={() => {}}
-    on:drop|preventDefault|stopPropagation={fileDrop}
+    on:drop|capture={fileDrop}
+    on:drop|preventDefault|stopPropagation={() => {}}
   >
     <ReferenceInput
       {focusIndex}
@@ -493,7 +518,7 @@
       {showSend}
       {showActions}
       autofocus={autofocus ? 'end' : false}
-      loading={loading || progress || loadingLinks}
+      loading={loading || fileUploads > 0 || loadingLinks}
       {boundary}
       {docClass}
       extraActions={[
@@ -509,7 +534,7 @@
         },
         ...uploadActions
       ]}
-      showHeader={attachments.size > 0 || progress}
+      showHeader={visibleAttachments.length > 0 || fileUploads > 0}
       haveAttachment={attachments.size > 0}
       on:focus
       on:blur
@@ -520,19 +545,19 @@
       {placeholder}
       kitOptions={{
         file: false,
-        image: false,
+        image: inlineImages,
         gif: true
       }}
     >
       <div slot="header">
-        {#if attachments.size > 0 || progress}
+        {#if visibleAttachments.length > 0 || fileUploads > 0}
           <div class="flex-row-center list scroll-divider-color">
-            {#if progress}
+            {#if fileUploads > 0}
               <div class="flex p-3">
                 <Loading />
               </div>
             {/if}
-            {#each Array.from(attachments.values()) as attachment}
+            {#each visibleAttachments as attachment}
               <div class="item flex">
                 <AttachmentPresenter
                   value={attachment}

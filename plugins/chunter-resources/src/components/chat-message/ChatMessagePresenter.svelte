@@ -282,7 +282,14 @@
               {#if (value.attachments ?? 0) > 0}
                 <div class="mt-2" />
               {/if}
-              <AttachmentDocList {value} {attachments} imageSize={attachmentImageSize} {videoPreload} {isOwn} />
+              <AttachmentDocList
+                {value}
+                {attachments}
+                inlineContent={value.message}
+                imageSize={attachmentImageSize}
+                {videoPreload}
+                {isOwn}
+              />
             </div>
           </ShowMore>
         {:else}
@@ -291,7 +298,14 @@
             {#if (value.attachments ?? 0) > 0}
               <div class="mt-2" />
             {/if}
-            <AttachmentDocList {value} {attachments} imageSize={attachmentImageSize} {videoPreload} {isOwn} />
+            <AttachmentDocList
+              {value}
+              {attachments}
+              inlineContent={value.message}
+              imageSize={attachmentImageSize}
+              {videoPreload}
+              {isOwn}
+            />
           </div>
         {/if}
       {:else if object}

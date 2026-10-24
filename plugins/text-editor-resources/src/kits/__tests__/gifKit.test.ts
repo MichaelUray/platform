@@ -50,10 +50,14 @@ describe('gif registration in the editor kit', () => {
     expect(read(composer)).toMatch(/gif:\s*true/)
   })
 
-  // image stays off. Flipping it would switch on inline image paste in chat, colliding
-  // with the attachment flow, and is the tempting shortcut this whole node exists to avoid.
-  it.each(COMPOSERS)('leaves the image node disabled in %s', (composer) => {
-    expect(read(composer)).toMatch(/image:\s*false/)
+  it('keeps the image node disabled in the communication composer', () => {
+    expect(read(COMPOSERS[1])).toMatch(/image:\s*false/)
+  })
+
+  it('makes image nodes opt-in in the attachment composer independently of GIFs', () => {
+    const source = read(COMPOSERS[0])
+    expect(source).toMatch(/export let inlineImages = false/)
+    expect(source).toMatch(/image:\s*inlineImages/)
   })
 })
 
