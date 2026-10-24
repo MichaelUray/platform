@@ -39,6 +39,7 @@
   import tags from '../plugin'
   import TagItem from './TagItem.svelte'
   import TagsPopup from './TagsPopup.svelte'
+  import { hasTagReference } from '../tag-reference'
   import WeightPopup from './WeightPopup.svelte'
 
   export let items: TagReference[] = []
@@ -75,6 +76,8 @@
   ]
 
   async function addRef(tag: TagElement): Promise<void> {
+    if (hasTagReference(items, tag)) return
+
     dispatch('open', tag)
   }
   async function addTag(evt: Event): Promise<void> {

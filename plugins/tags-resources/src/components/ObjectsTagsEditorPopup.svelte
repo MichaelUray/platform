@@ -17,15 +17,14 @@
   import { createQuery, getClient } from '@hcengineering/presentation'
   import tags, { TagElement, TagReference } from '@hcengineering/tags'
   import TagsPopup from './TagsPopup.svelte'
+  import { addTagReference } from '../tag-reference'
 
   export let value: Doc | Doc[]
   $: objects = Array.isArray(value) ? value : [value]
 
   let selected: Ref<TagElement>[] = []
-  let tagRefs: TagReference[] = []
   const query = createQuery()
   $: query.query(tags.class.TagReference, { attachedTo: { $in: objects.map((p) => p._id) } }, (result) => {
-    tagRefs = result
     const res: Record<Ref<TagElement>, TagReference> = {}
     for (const value of result) {
       const arr = (res as any)[value.tag] ?? []
@@ -42,18 +41,8 @@
   })
 
   const client = getClient()
-  async function addRef({ title, color, _id: tag }: TagElement): Promise<void> {
-    await Promise.all(
-      objects.map(async (object) => {
-        if (tagRefs.findIndex((p) => p.attachedTo === object._id && p.tag === tag) !== -1) return
-
-        await client.addCollection(tags.class.TagReference, object.space, object._id, object._class, 'labels', {
-          title,
-          color,
-          tag
-        })
-      })
-    )
+  async function addRef(tag: TagElement): Promise<void> {
+    await Promise.all(objects.map((object) => addTagReference(client, object, tag)))
   }
   async function removeTag(tag: TagElement): Promise<void> {
     await Promise.all(
