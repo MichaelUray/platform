@@ -889,7 +889,13 @@
         showButtons={false}
         kind={'indented'}
         isScrollable={false}
-        kitOptions={{ reference: true }}
+        kitOptions={{
+          reference: true,
+          lists: {
+            todoItem: true,
+            todoList: true
+          }
+        }}
         enableAttachments={false}
         bind:content={object.description}
         placeholder={tracker.string.IssueDescriptionPlaceholder}
