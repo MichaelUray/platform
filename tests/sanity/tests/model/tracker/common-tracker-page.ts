@@ -226,7 +226,7 @@ export class CommonTrackerPage extends CalendarPage {
   async addCommentWithImage (comment: string, fileName: string): Promise<void> {
     await this.inputComment().fill(comment)
     await this.inputCommentFile().setInputFiles(path.join(__dirname, `../../files/${fileName}`))
-    await expect(this.fileUploadName(fileName)).toBeVisible()
+    await expect(this.inputComment().getByRole('img', { name: fileName, exact: true })).toBeVisible()
     await this.buttonSendComment().click()
   }
 
