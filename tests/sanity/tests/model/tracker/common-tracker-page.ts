@@ -34,7 +34,8 @@ export class CommonTrackerPage extends CalendarPage {
   fileUploadName = (fileName: string): Locator =>
     this.page.locator('div[slot="header"] div.item div.name', { hasText: fileName })
 
-  commentImg = (): Locator => this.page.locator('div.activityMessage div.content img')
+  commentImg = (fileName: string): Locator =>
+    this.page.locator('div.activityMessage .text-markup-view').getByRole('img', { name: fileName, exact: true })
   textCategoryHeader = (): Locator =>
     this.page.locator('div.category-container > div.categoryHeader span[class*="label"]')
 
@@ -232,8 +233,9 @@ export class CommonTrackerPage extends CalendarPage {
 
   async checkCommentWithImageExist (commentHeader: string, fileName: string): Promise<void> {
     await this.checkActivityExist(commentHeader)
-    const srcset = await this.commentImg().getAttribute('alt')
-    expect(srcset).toContain(fileName)
+    const image = this.commentImg(fileName)
+    await expect(image).toBeVisible()
+    await expect(image).not.toHaveJSProperty('naturalWidth', 0)
   }
 
   async checkCategoryHeader (categoryHeader: string): Promise<void> {

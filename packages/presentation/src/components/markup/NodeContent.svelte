@@ -159,12 +159,17 @@
       {/if}
     </div>
   {:else if node.type === MarkupNodeType.image}
-    {@const src = toString(attrs.src)}
     {@const alt = toString(attrs.alt)}
     {@const width = toString(attrs.width)}
     {@const height = toString(attrs.height)}
     <div class="imgContainer max-h-60 max-w-60">
-      <img {src} {alt} {width} {height} />
+      {#if attrs['file-id'] != null}
+        {#await getBlobRef(toRefBlob(attrs['file-id'])) then blobSrc}
+          <img src={blobSrc.src} srcset={blobSrc.srcset} {alt} {width} {height} />
+        {/await}
+      {:else if attrs.src != null}
+        <img src={toString(attrs.src)} {alt} {width} {height} />
+      {/if}
     </div>
   {:else if node.type === MarkupNodeType.reference}
     {@const objectId = toString(attrs.id)}
