@@ -63,11 +63,17 @@ jest.mock(
       const query = entries.length === 0 ? '' : `?${new URLSearchParams(entries).toString()}`
       return loc.path.join('/') + query + (loc.fragment === undefined ? '' : `#${loc.fragment}`)
     },
-    parseLocation: (url: URL) => ({
-      path: url.pathname.slice(1).split('/'),
-      query: url.search === '' ? undefined : Object.fromEntries(url.searchParams),
-      fragment: url.hash.slice(1) || undefined
-    }),
+    parseLocation: (url: URL) => {
+      const query: Record<string, string> = {}
+      url.searchParams.forEach((value, key) => {
+        query[key] = value
+      })
+      return {
+        path: url.pathname.slice(1).split('/'),
+        query: url.search === '' ? undefined : query,
+        fragment: url.hash.slice(1) || undefined
+      }
+    },
     navigate: jest.fn()
   }),
   { virtual: true }
@@ -129,7 +135,7 @@ function makeTab (id: string, location = 'workbench/workspace/app/document'): Wo
 
 async function flush (): Promise<void> {
   await new Promise<void>((resolve) => {
-    setImmediate(resolve)
+    setTimeout(resolve, 0)
   })
 }
 
@@ -466,7 +472,7 @@ describe('tab document subscriptions', () => {
     let resolvePath: (data: LocationData) => void = () => {}
     resolver.mockImplementation(async (loc) => {
       if (loc.fragment !== undefined) return documentData
-      return new Promise<LocationData>((resolve) => {
+      return await new Promise<LocationData>((resolve) => {
         resolvePath = resolve
       })
     })
