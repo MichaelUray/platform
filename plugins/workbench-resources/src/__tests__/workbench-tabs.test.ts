@@ -58,8 +58,16 @@ jest.mock(
     languageStore: jest.requireActual<typeof import('svelte/store')>('svelte/store').writable('en'),
     location: jest.requireActual<typeof import('svelte/store')>('svelte/store').writable(undefined),
     locationStorageKeyId: 'location',
-    locationToUrl: (loc: Location) => loc.path.join('/') + (loc.fragment === undefined ? '' : `#${loc.fragment}`),
-    parseLocation: (url: URL) => ({ path: url.pathname.slice(1).split('/'), fragment: url.hash.slice(1) || undefined }),
+    locationToUrl: (loc: Location) => {
+      const entries = Object.entries(loc.query ?? {}).map(([key, value]) => [key, value ?? ''])
+      const query = entries.length === 0 ? '' : `?${new URLSearchParams(entries).toString()}`
+      return loc.path.join('/') + query + (loc.fragment === undefined ? '' : `#${loc.fragment}`)
+    },
+    parseLocation: (url: URL) => ({
+      path: url.pathname.slice(1).split('/'),
+      query: url.search === '' ? undefined : Object.fromEntries(url.searchParams),
+      fragment: url.hash.slice(1) || undefined
+    }),
     navigate: jest.fn()
   }),
   { virtual: true }
@@ -111,6 +119,7 @@ const client = {
   getModel: () => ({ findAllSync: (cls: string) => (cls === 'application' ? [application] : []) }),
   getHierarchy: () => ({ hasClass: () => true, classHierarchyMixin: () => undefined }),
   createDoc: jest.fn(async () => 'new-tab'),
+  update: jest.fn(async () => {}),
   remove: jest.fn(async () => {})
 }
 
@@ -119,7 +128,9 @@ function makeTab (id: string, location = 'workbench/workspace/app/document'): Wo
 }
 
 async function flush (): Promise<void> {
-  for (let i = 0; i < 10; i++) await Promise.resolve()
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve)
+  })
 }
 
 beforeAll(() => {
@@ -160,6 +171,212 @@ describe('tab document subscriptions', () => {
 
   afterEach(() => {
     unwatch?.()
+  })
+
+  it.each([
+    { kind: 'issue', appPath: 'tracker/project/issues' },
+    { kind: 'talent', appPath: 'recruit/talents' },
+    { kind: 'company', appPath: 'recruit/organizations' },
+    { kind: 'application', appPath: 'recruit/candidates' }
+  ])('keeps the active list tab when its $kind panel document is deleted', async ({ appPath }) => {
+    application.locationDataResolver = undefined
+    const location = `workbench/workspace/${appPath}?filter=mine`
+    const tab = makeTab('panel', `${location}#panel|LINK-1|document-class`)
+    const unrelated = makeTab('unrelated', 'workbench/workspace/notification')
+    const listLocation: Location = {
+      path: ['workbench', 'workspace', ...appPath.split('/')],
+      query: { filter: 'mine' }
+    }
+    tabsStore.set([tab, unrelated])
+    tabIdStore.set(tab._id)
+    jest.mocked(getCurrentLocation).mockReturnValue({ ...listLocation, fragment: 'panel|LINK-1|document-class' })
+    unwatch = watchTabDocuments()
+    await flush()
+
+    queries[0].emit([{ _id: objectId } as unknown as Doc])
+    queries[0].emit([])
+    queries[0].emit([])
+    await flush()
+
+    expect(client.update).toHaveBeenCalledTimes(1)
+    expect(client.update).toHaveBeenCalledWith(tab, { location, name: 'App' })
+    expect(get(tabsStore)).toEqual([{ ...tab, location, name: 'App' }, unrelated])
+    expect(get(tabIdStore)).toBe(tab._id)
+    expect(navigate).toHaveBeenCalledTimes(1)
+    expect(navigate).toHaveBeenCalledWith({ ...listLocation, fragment: undefined })
+    expect(client.remove).not.toHaveBeenCalled()
+    expect(client.createDoc).not.toHaveBeenCalled()
+    expect(queries[0].unsubscribe).toHaveBeenCalledTimes(1)
+    expect(queries[1].unsubscribe).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('dismisses a resolver panel with active=%s without closing its tab', async (active) => {
+    resolver.mockImplementation(async (loc) => (loc.fragment === undefined ? { name: 'List' } : documentData))
+    const location = 'workbench/workspace/app/list'
+    const tab = makeTab('panel', `${location}#panel|document|document-class`)
+    const unrelated = makeTab('unrelated', 'workbench/workspace/app/other')
+    tabsStore.set([tab, unrelated])
+    const activeTab = active ? tab : unrelated
+    tabIdStore.set(activeTab._id)
+    jest.mocked(getCurrentLocation).mockReturnValue({
+      path: ['workbench', 'workspace', 'app', active ? 'list' : 'other'],
+      fragment: active ? 'panel|document|document-class' : undefined
+    })
+    unwatch = watchTabDocuments()
+    await flush()
+
+    queries[0].emit([{ _id: objectId } as unknown as Doc])
+    queries[0].emit([])
+    await flush()
+
+    expect(client.update).toHaveBeenCalledWith(tab, { location, name: 'List' })
+    expect(get(tabsStore)).toEqual([{ ...tab, location, name: 'List' }, unrelated])
+    expect(get(tabIdStore)).toBe(activeTab._id)
+    expect(navigate).toHaveBeenCalledTimes(active ? 1 : 0)
+    expect(client.remove).not.toHaveBeenCalled()
+    expect(client.createDoc).not.toHaveBeenCalled()
+    expect(queries[1].unsubscribe).not.toHaveBeenCalled()
+  })
+
+  it('keeps a final pinned tab when only its panel document was deleted', async () => {
+    application.locationDataResolver = undefined
+    const location = 'workbench/workspace/app/list'
+    const tab = { ...makeTab('last', `${location}#panel|document|document-class`), isPinned: true }
+    tabsStore.set([tab])
+    tabIdStore.set(tab._id)
+    unwatch = watchTabDocuments()
+    await flush()
+
+    queries[0].emit([{ _id: objectId } as unknown as Doc])
+    queries[0].emit([])
+    await flush()
+
+    expect(get(tabsStore)).toEqual([{ ...tab, location, name: 'App' }])
+    expect(get(tabIdStore)).toBe(tab._id)
+    expect(client.createDoc).not.toHaveBeenCalled()
+    expect(client.remove).not.toHaveBeenCalled()
+  })
+
+  it('clears an inactive fragment panel while keeping the unrelated active tab untouched', async () => {
+    application.locationDataResolver = undefined
+    const location = 'workbench/workspace/recruit/talents'
+    const tab = makeTab('panel', `${location}#panel|document|document-class`)
+    const activeTab = makeTab('active', 'workbench/workspace/tracker/project/issues')
+    tabsStore.set([tab, activeTab])
+    tabIdStore.set(activeTab._id)
+    unwatch = watchTabDocuments()
+    await flush()
+
+    queries[0].emit([{ _id: objectId } as unknown as Doc])
+    queries[0].emit([])
+    await flush()
+
+    expect(client.update).toHaveBeenCalledTimes(1)
+    expect(client.update).toHaveBeenCalledWith(tab, { location, name: 'App' })
+    expect(get(tabsStore)).toEqual([{ ...tab, location, name: 'App' }, activeTab])
+    expect(get(tabIdStore)).toBe(activeTab._id)
+    expect(navigate).not.toHaveBeenCalled()
+    expect(client.remove).not.toHaveBeenCalled()
+    expect(client.createDoc).not.toHaveBeenCalled()
+    expect(queries[1].unsubscribe).not.toHaveBeenCalled()
+  })
+
+  it('keeps a different document in the path when the fragment document is deleted', async () => {
+    const underlyingDocument = { objectId: 'underlying' as Ref<Doc>, objectClass, name: 'Underlying' }
+    resolver.mockImplementation(async (loc) => (loc.fragment === undefined ? underlyingDocument : documentData))
+    const location = 'workbench/workspace/app/underlying'
+    const tab = makeTab('panel', `${location}#panel|document|document-class`)
+    tabsStore.set([tab])
+    tabIdStore.set(tab._id)
+    unwatch = watchTabDocuments()
+    await flush()
+
+    queries[0].emit([{ _id: objectId } as unknown as Doc])
+    queries[0].emit([])
+    await flush()
+
+    expect(get(tabsStore)).toEqual([{ ...tab, location, name: 'Underlying' }])
+    expect(client.update).toHaveBeenCalledWith(tab, { location, name: 'Underlying' })
+    expect(client.remove).not.toHaveBeenCalled()
+    expect(client.createDoc).not.toHaveBeenCalled()
+    expect(queries[1].query).toHaveBeenCalledWith(
+      objectClass,
+      { _id: underlyingDocument.objectId },
+      expect.any(Function)
+    )
+  })
+
+  it('closes a tab whose path resolves to the deleted document even when it also has a fragment', async () => {
+    resolver.mockImplementation(async (loc) =>
+      loc.path[3] === 'other' ? { objectId: 'other-document' as Ref<Doc>, objectClass, name: 'Other' } : documentData
+    )
+    const tab = makeTab('document', 'workbench/workspace/app/document#panel|document|document-class')
+    const unrelated = makeTab('unrelated', 'workbench/workspace/app/other')
+    tabsStore.set([unrelated, tab])
+    tabIdStore.set(tab._id)
+    unwatch = watchTabDocuments()
+    await flush()
+
+    queries[1].emit([{ _id: objectId } as unknown as Doc])
+    // Real resolvers can no longer look up the document after deletion.
+    resolver.mockResolvedValue({})
+    queries[1].emit([])
+    await flush()
+
+    expect(client.remove).toHaveBeenCalledWith(tab)
+    expect(client.update).not.toHaveBeenCalled()
+    expect(get(tabsStore)).toEqual([unrelated])
+    expect(get(tabIdStore)).toBe(unrelated._id)
+    expect(navigate).toHaveBeenCalledWith({
+      path: ['workbench', 'workspace', 'app', 'other'],
+      query: undefined,
+      fragment: undefined
+    })
+  })
+
+  it('closes a document short-link tab whose path resolver generates the panel fragment', async () => {
+    application.locationDataResolver = undefined
+    application.locationResolver = jest.fn(async () => ({
+      loc: { path: ['workbench', 'workspace'], fragment: 'panel|LINK-1|document-class' }
+    }))
+    const tab = makeTab('document', 'workbench/workspace/app/LINK-1#panel|LINK-1|document-class')
+    const unrelated = makeTab('unrelated', 'workbench/workspace/app/other')
+    tabsStore.set([tab, unrelated])
+    tabIdStore.set(unrelated._id)
+    unwatch = watchTabDocuments()
+    await flush()
+
+    queries[0].emit([{ _id: objectId } as unknown as Doc])
+    queries[0].emit([])
+    await flush()
+
+    expect(client.remove).toHaveBeenCalledWith(tab)
+    expect(client.update).not.toHaveBeenCalled()
+    expect(get(tabsStore)).toEqual([unrelated])
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('replaces the final fragment-only tab when no underlying application view remains', async () => {
+    application.locationDataResolver = undefined
+    const tab = makeTab('document', 'workbench/workspace#panel|document|document-class')
+    tabsStore.set([tab])
+    tabIdStore.set(tab._id)
+    unwatch = watchTabDocuments()
+    await flush()
+
+    queries[0].emit([{ _id: objectId } as unknown as Doc])
+    queries[0].emit([])
+    await flush()
+
+    expect(client.remove).toHaveBeenCalledWith(tab)
+    expect(client.update).not.toHaveBeenCalled()
+    expect(client.createDoc).toHaveBeenCalledTimes(1)
+    expect(get(tabIdStore)).toBe('new-tab')
+    expect(navigate).toHaveBeenCalledWith({
+      path: ['workbench', 'workspace', 'notification'],
+      query: undefined,
+      fragment: undefined
+    })
   })
 
   it('closes an inactive tab when its document is deleted from another tab', async () => {
@@ -243,6 +460,33 @@ describe('tab document subscriptions', () => {
     expect(queries[0].query).not.toHaveBeenCalled()
     tabsStore.set([makeTab('new')])
     expect(queries).toHaveLength(1)
+  })
+
+  it('ignores pending fragment-free resolution after the tab navigates elsewhere', async () => {
+    let resolvePath: (data: LocationData) => void = () => {}
+    resolver.mockImplementation(async (loc) => {
+      if (loc.fragment !== undefined) return documentData
+      return new Promise<LocationData>((resolve) => {
+        resolvePath = resolve
+      })
+    })
+    const tab = makeTab('panel', 'workbench/workspace/app/list#panel|document|document-class')
+    tabsStore.set([tab])
+    tabIdStore.set(tab._id)
+    unwatch = watchTabDocuments()
+    await flush()
+
+    const nextTab = { ...tab, location: 'workbench/workspace/app/next' }
+    tabsStore.set([nextTab])
+    resolvePath({ name: 'List' })
+    await flush()
+
+    expect(queries[0].unsubscribe).toHaveBeenCalledTimes(1)
+    expect(queries[0].query).not.toHaveBeenCalled()
+    expect(get(tabsStore)).toEqual([nextTab])
+    expect(client.update).not.toHaveBeenCalled()
+    expect(client.remove).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
   })
 })
 

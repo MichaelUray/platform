@@ -263,6 +263,15 @@ export async function unpinTab (tab: WorkbenchTab): Promise<void> {
   await client.update(tab, { isPinned: false })
 }
 
+async function clearTabFragment (tab: WorkbenchTab, loc: Location, name: string): Promise<void> {
+  const location = locationToUrl(loc)
+  tabsStore.update((tabs) => tabs.map((t) => (t._id === tab._id ? { ...t, location, name } : t)))
+  if (get(tabIdStore) === tab._id && locationToUrl(getCurrentLocation()) === locationToUrl(getTabLocation(tab))) {
+    navigate(loc)
+  }
+  await getClient().update(tab, { location, name })
+}
+
 interface TabDocumentQuery {
   location: string
   query: LiveQuery
@@ -282,17 +291,36 @@ export function watchTabDocuments (): () => void {
       if (queries.has(tab._id)) continue
       const entry = { location: tab.location, query: createQuery(true) }
       queries.set(tab._id, entry)
-      void getTabDataByLocation(getTabLocation(tab))
-        .then((data) => {
+      const loc = getTabLocation(tab)
+      void getTabDataByLocation(loc)
+        .then(async (data) => {
           if (queries.get(tab._id) !== entry || data.objectId === undefined || data.objectClass === undefined) return
+          let panel: { location: Location, name: string } | undefined
+          if (loc.fragment != null && loc.fragment !== '' && loc.path[2] != null && loc.path[2] !== '') {
+            const location = { ...loc, fragment: undefined }
+            // Resolve before deletion: document-backed resolvers may return nothing once the document is gone.
+            const pathData = await getTabDataByLocation(location)
+            if (pathData.objectId !== data.objectId) {
+              panel = {
+                location,
+                name: pathData.name ?? (await translate(pathData.label, {}, get(languageStore)))
+              }
+            }
+          }
+          if (queries.get(tab._id) !== entry) return
           let existed = false
+          let handled = false
           entry.query.query(data.objectClass, { _id: data.objectId }, (docs) => {
-            if (queries.get(tab._id) !== entry) return
+            if (queries.get(tab._id) !== entry || handled) return
             if (docs.length > 0) {
               existed = true
             } else if (existed) {
-              existed = false
-              void closeTab(tab).catch(console.error)
+              handled = true
+              if (panel !== undefined) {
+                void clearTabFragment(tab, panel.location, panel.name).catch(console.error)
+              } else {
+                void closeTab(tab).catch(console.error)
+              }
             }
           })
         })
