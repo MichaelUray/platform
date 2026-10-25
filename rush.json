@@ -1530,6 +1530,11 @@
       "projectFolder": "models/tracker",
       "shouldPublish": false
     },
+    {
+      "packageName": "@hcengineering/workflow-rules",
+      "projectFolder": "plugins/workflow-rules",
+      "shouldPublish": true
+    },
 
     {
       "packageName": "@hcengineering/board",
