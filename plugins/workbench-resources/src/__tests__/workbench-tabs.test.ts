@@ -4,7 +4,7 @@ import type { Class, Doc, Ref } from '@hcengineering/core'
 import { getResource } from '@hcengineering/platform'
 import { createQuery, getClient } from '@hcengineering/presentation'
 import { getCurrentLocation, navigate } from '@hcengineering/ui'
-import type { Location } from '@hcengineering/ui'
+import type { Location, ResolvedLocation } from '@hcengineering/ui'
 import { parseLinkId } from '@hcengineering/view-resources'
 import type { LocationData, WorkbenchTab } from '@hcengineering/workbench'
 import { get } from 'svelte/store'
@@ -112,7 +112,7 @@ interface TestQuery {
 
 const objectId = 'document' as Ref<Doc>
 const objectClass = 'document-class' as Ref<Class<Doc>>
-const documentData = { objectId, objectClass, name: 'Document' }
+const documentData: LocationData = { objectId, objectClass, name: 'Document' }
 const resolver = jest.fn<Promise<LocationData>, [Location]>()
 const queries: TestQuery[] = []
 const application = {
@@ -312,35 +312,78 @@ describe('tab document subscriptions', () => {
     )
   })
 
-  it('closes a tab whose path resolves to the deleted document even when it also has a fragment', async () => {
-    resolver.mockImplementation(async (loc) =>
-      loc.path[3] === 'other' ? { objectId: 'other-document' as Ref<Doc>, objectClass, name: 'Other' } : documentData
-    )
-    const tab = makeTab('document', 'workbench/workspace/app/document#panel|document|document-class')
-    const unrelated = makeTab('unrelated', 'workbench/workspace/app/other')
-    tabsStore.set([unrelated, tab])
+  it.each([false, true])('returns an active document tab to the app root with pinned=%s', async (isPinned) => {
+    resolver.mockImplementation(async (loc) => (loc.path.length === 3 ? { name: 'Home' } : documentData))
+    const tab: WorkbenchTab = {
+      ...makeTab('document', 'workbench/workspace/app/document?filter=mine#panel|document|document-class'),
+      isPinned
+    }
+    tabsStore.set([tab])
     tabIdStore.set(tab._id)
     unwatch = watchTabDocuments()
     await flush()
 
-    queries[1].emit([{ _id: objectId } as unknown as Doc])
+    queries[0].emit([{ _id: objectId } as unknown as Doc])
     // Real resolvers can no longer look up the document after deletion.
     resolver.mockResolvedValue({})
-    queries[1].emit([])
+    queries[0].emit([])
+    queries[0].emit([])
     await flush()
 
-    expect(client.remove).toHaveBeenCalledWith(tab)
-    expect(client.update).not.toHaveBeenCalled()
-    expect(get(tabsStore)).toEqual([unrelated])
-    expect(get(tabIdStore)).toBe(unrelated._id)
-    expect(navigate).toHaveBeenCalledWith({
-      path: ['workbench', 'workspace', 'app', 'other'],
-      query: undefined,
-      fragment: undefined
-    })
+    expect(client.update).toHaveBeenCalledTimes(1)
+    expect(client.update).toHaveBeenCalledWith(tab, { location: 'workbench/workspace/app', name: 'Home' })
+    expect(get(tabsStore)).toEqual([{ ...tab, location: 'workbench/workspace/app', name: 'Home' }])
+    expect(get(tabIdStore)).toBe(tab._id)
+    expect(navigate).toHaveBeenCalledTimes(1)
+    expect(navigate).toHaveBeenCalledWith({ path: ['workbench', 'workspace', 'app'] })
+    expect(client.remove).not.toHaveBeenCalled()
+    expect(client.createDoc).not.toHaveBeenCalled()
+    expect(queries[0].unsubscribe).toHaveBeenCalledTimes(1)
   })
 
-  it('closes a document short-link tab whose path resolver generates the panel fragment', async () => {
+  it.each([
+    { kind: 'issue', app: 'tracker', document: 'ISSUE-1', fragment: undefined },
+    { kind: 'talent', app: 'recruit', document: 'candidate-document', fragment: 'panel|LINK-1|document-class' },
+    { kind: 'company', app: 'recruit', document: 'company-document', fragment: undefined },
+    { kind: 'application', app: 'recruit', document: 'APP-1', fragment: undefined }
+  ])('returns the active $kind short-link tab to its app root after deletion', async ({ app, document, fragment }) => {
+    application.locationDataResolver = undefined
+    const resolveLocation = jest.fn(async (loc: Location): Promise<ResolvedLocation | undefined> => {
+      if (loc.path.length === 3) return undefined
+      return {
+        loc: { path: ['workbench', 'workspace'], fragment: 'panel|LINK-1|document-class' },
+        defaultLocation: { path: ['workbench', 'workspace', app, 'list'] }
+      }
+    })
+    application.locationResolver = resolveLocation
+    const suffix = fragment === undefined ? '' : `#${fragment}`
+    const tab = makeTab('document', `workbench/workspace/${app}/${document}?filter=mine${suffix}`)
+    const unrelated = makeTab('unrelated', 'workbench/workspace/notification')
+    tabsStore.set([tab, unrelated])
+    tabIdStore.set(tab._id)
+    unwatch = watchTabDocuments()
+    await flush()
+
+    queries[0].emit([{ _id: objectId } as unknown as Doc])
+    resolveLocation.mockResolvedValue(undefined)
+    queries[0].emit([])
+    queries[0].emit([])
+    await flush()
+
+    const location = `workbench/workspace/${app}`
+    expect(client.update).toHaveBeenCalledTimes(1)
+    expect(client.update).toHaveBeenCalledWith(tab, { location, name: 'App' })
+    expect(get(tabsStore)).toEqual([{ ...tab, location, name: 'App' }, unrelated])
+    expect(get(tabIdStore)).toBe(tab._id)
+    expect(navigate).toHaveBeenCalledTimes(1)
+    expect(navigate).toHaveBeenCalledWith({ path: ['workbench', 'workspace', app] })
+    expect(client.remove).not.toHaveBeenCalled()
+    expect(client.createDoc).not.toHaveBeenCalled()
+    expect(queries[0].unsubscribe).toHaveBeenCalledTimes(1)
+    expect(queries[1].unsubscribe).not.toHaveBeenCalled()
+  })
+
+  it('closes an inactive document short-link tab whose path resolver generates the panel fragment', async () => {
     application.locationDataResolver = undefined
     application.locationResolver = jest.fn(async () => ({
       loc: { path: ['workbench', 'workspace'], fragment: 'panel|LINK-1|document-class' }
@@ -359,7 +402,10 @@ describe('tab document subscriptions', () => {
     expect(client.remove).toHaveBeenCalledWith(tab)
     expect(client.update).not.toHaveBeenCalled()
     expect(get(tabsStore)).toEqual([unrelated])
+    expect(get(tabIdStore)).toBe(unrelated._id)
     expect(navigate).not.toHaveBeenCalled()
+    expect(client.createDoc).not.toHaveBeenCalled()
+    expect(queries[0].unsubscribe).toHaveBeenCalledTimes(1)
   })
 
   it('replaces the final fragment-only tab when no underlying application view remains', async () => {
@@ -403,6 +449,35 @@ describe('tab document subscriptions', () => {
     expect(get(tabIdStore)).toBe(activeTab._id)
     expect(navigate).not.toHaveBeenCalled()
     expect(queries[0].unsubscribe).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true])('uses active=%s at deletion time after switching tabs', async (active) => {
+    resolver.mockImplementation(async (loc) => (loc.path.length === 3 ? { name: 'Home' } : documentData))
+    const tab = makeTab('document')
+    const other = makeTab('other')
+    tabsStore.set([tab, other])
+    tabIdStore.set(active ? other._id : tab._id)
+    unwatch = watchTabDocuments()
+    await flush()
+
+    queries[0].emit([{ _id: objectId } as unknown as Doc])
+    tabIdStore.set(active ? tab._id : other._id)
+    queries[0].emit([])
+    await flush()
+
+    expect(get(tabIdStore)).toBe(active ? tab._id : other._id)
+    if (active) {
+      expect(client.update).toHaveBeenCalledWith(tab, { location: 'workbench/workspace/app', name: 'Home' })
+      expect(get(tabsStore)).toEqual([{ ...tab, location: 'workbench/workspace/app', name: 'Home' }, other])
+      expect(navigate).toHaveBeenCalledWith({ path: ['workbench', 'workspace', 'app'] })
+      expect(client.remove).not.toHaveBeenCalled()
+    } else {
+      expect(client.remove).toHaveBeenCalledWith(tab)
+      expect(get(tabsStore)).toEqual([other])
+      expect(client.update).not.toHaveBeenCalled()
+      expect(navigate).not.toHaveBeenCalled()
+    }
+    expect(client.createDoc).not.toHaveBeenCalled()
   })
 
   it('ignores an initially missing document and closes only once after it disappears', async () => {
@@ -485,6 +560,33 @@ describe('tab document subscriptions', () => {
     const nextTab = { ...tab, location: 'workbench/workspace/app/next' }
     tabsStore.set([nextTab])
     resolvePath({ name: 'List' })
+    await flush()
+
+    expect(queries[0].unsubscribe).toHaveBeenCalledTimes(1)
+    expect(queries[0].query).not.toHaveBeenCalled()
+    expect(get(tabsStore)).toEqual([nextTab])
+    expect(client.update).not.toHaveBeenCalled()
+    expect(client.remove).not.toHaveBeenCalled()
+    expect(navigate).not.toHaveBeenCalled()
+  })
+
+  it('ignores pending app-root resolution after the tab navigates elsewhere', async () => {
+    let resolveRoot: (data: LocationData) => void = () => {}
+    resolver.mockImplementation(async (loc) => {
+      if (loc.path.length > 3) return documentData
+      return await new Promise<LocationData>((resolve) => {
+        resolveRoot = resolve
+      })
+    })
+    const tab = makeTab('document')
+    tabsStore.set([tab])
+    tabIdStore.set(tab._id)
+    unwatch = watchTabDocuments()
+    await flush()
+
+    const nextTab: WorkbenchTab = { ...tab, location: 'workbench/workspace/app/next' }
+    tabsStore.set([nextTab])
+    resolveRoot({ name: 'Home' })
     await flush()
 
     expect(queries[0].unsubscribe).toHaveBeenCalledTimes(1)

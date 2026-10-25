@@ -263,10 +263,15 @@ export async function unpinTab (tab: WorkbenchTab): Promise<void> {
   await client.update(tab, { isPinned: false })
 }
 
-async function clearTabFragment (tab: WorkbenchTab, loc: Location, name: string): Promise<void> {
+async function updateTabLocation (
+  tab: WorkbenchTab,
+  loc: Location,
+  name: string,
+  navigateActiveTab: boolean
+): Promise<void> {
   const location = locationToUrl(loc)
   tabsStore.update((tabs) => tabs.map((t) => (t._id === tab._id ? { ...t, location, name } : t)))
-  if (get(tabIdStore) === tab._id && locationToUrl(getCurrentLocation()) === locationToUrl(getTabLocation(tab))) {
+  if (get(tabIdStore) === tab._id && navigateActiveTab) {
     navigate(loc)
   }
   await getClient().update(tab, { location, name })
@@ -275,6 +280,11 @@ async function clearTabFragment (tab: WorkbenchTab, loc: Location, name: string)
 interface TabDocumentQuery {
   location: string
   query: LiveQuery
+}
+
+interface TabLocation {
+  location: Location
+  name: string
 }
 
 /** Watch all tabs, including those without a rendered tab presenter. */
@@ -289,13 +299,13 @@ export function watchTabDocuments (): () => void {
     }
     for (const tab of tabs) {
       if (queries.has(tab._id)) continue
-      const entry = { location: tab.location, query: createQuery(true) }
+      const entry: TabDocumentQuery = { location: tab.location, query: createQuery(true) }
       queries.set(tab._id, entry)
       const loc = getTabLocation(tab)
       void getTabDataByLocation(loc)
         .then(async (data) => {
           if (queries.get(tab._id) !== entry || data.objectId === undefined || data.objectClass === undefined) return
-          let panel: { location: Location, name: string } | undefined
+          let panel: TabLocation | undefined
           if (loc.fragment != null && loc.fragment !== '' && loc.path[2] != null && loc.path[2] !== '') {
             const location: Location = { ...loc, fragment: undefined }
             // Resolve before deletion: document-backed resolvers may return nothing once the document is gone.
@@ -305,6 +315,16 @@ export function watchTabDocuments (): () => void {
                 location,
                 name: pathData.name ?? (await translate(pathData.label, {}, get(languageStore)))
               }
+            }
+          }
+          let appRoot: TabLocation | undefined
+          if (panel === undefined && loc.path[2] != null && loc.path[2] !== '') {
+            // Enter through the app root, just like the application navigator.
+            const location: Location = { path: loc.path.slice(0, 3) }
+            const appData = await getTabDataByLocation(location)
+            appRoot = {
+              location,
+              name: appData.name ?? (await translate(appData.label, {}, get(languageStore)))
             }
           }
           if (queries.get(tab._id) !== entry) return
@@ -317,7 +337,10 @@ export function watchTabDocuments (): () => void {
             } else if (existed) {
               handled = true
               if (panel !== undefined) {
-                void clearTabFragment(tab, panel.location, panel.name).catch(console.error)
+                const matchesLocation = locationToUrl(getCurrentLocation()) === locationToUrl(loc)
+                void updateTabLocation(tab, panel.location, panel.name, matchesLocation).catch(console.error)
+              } else if (get(tabIdStore) === tab._id && appRoot !== undefined) {
+                void updateTabLocation(tab, appRoot.location, appRoot.name, true).catch(console.error)
               } else {
                 void closeTab(tab).catch(console.error)
               }
