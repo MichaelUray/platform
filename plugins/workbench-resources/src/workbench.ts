@@ -297,7 +297,7 @@ export function watchTabDocuments (): () => void {
           if (queries.get(tab._id) !== entry || data.objectId === undefined || data.objectClass === undefined) return
           let panel: { location: Location, name: string } | undefined
           if (loc.fragment != null && loc.fragment !== '' && loc.path[2] != null && loc.path[2] !== '') {
-            const location = { ...loc, fragment: undefined }
+            const location: Location = { ...loc, fragment: undefined }
             // Resolve before deletion: document-backed resolvers may return nothing once the document is gone.
             const pathData = await getTabDataByLocation(location)
             if (pathData.objectId !== data.objectId) {
