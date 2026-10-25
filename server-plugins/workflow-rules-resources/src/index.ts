@@ -49,11 +49,11 @@ export async function OnWorkflowRuleMirror (txes: Tx[], control: TriggerControl)
     )
     if (source === undefined) continue
 
-    const rules = await control.findAll(
+    const rules = (await control.findAll(
       control.ctx,
-      workflowRules.class.WorkflowRule as Ref<any>,
+      workflowRules.class.WorkflowRule,
       { space: source.space, enabled: true }
-    ) as WorkflowRule[]
+    )) as unknown as WorkflowRule[]
     if (rules.length === 0) continue
 
     for (const rule of rules) {

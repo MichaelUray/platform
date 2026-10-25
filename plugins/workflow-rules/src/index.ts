@@ -6,7 +6,7 @@
 // you may not use this file except in compliance with the License. You may
 // obtain a copy of the License at https://www.eclipse.org/legal/epl-2.0
 
-import type { Doc, Ref } from '@hcengineering/core'
+import type { Class, Doc, Ref } from '@hcengineering/core'
 import type { Asset, IntlString, Plugin } from '@hcengineering/platform'
 import { plugin } from '@hcengineering/platform'
 import type { Component, IssueStatus, Project } from '@hcengineering/tracker'
@@ -124,7 +124,7 @@ export const workflowRulesId = 'workflow-rules' as Plugin
 /** @public */
 const workflowRules = plugin(workflowRulesId, {
   class: {
-    WorkflowRule: '' as Ref<Doc>
+    WorkflowRule: '' as Ref<Class<WorkflowRule>>
   },
   string: {
     WorkflowRules: '' as IntlString,
