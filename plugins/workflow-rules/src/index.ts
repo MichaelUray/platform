@@ -42,7 +42,7 @@ export type WorkflowRuleInheritField =
 /**
  * @public
  *
- * One allowed "backwards" transition on the target side of a rule — a (from,
+ * One allowed "backwards" transition on the target side of a rule - a (from,
  * to) pair the regression guard will let through even when `to` has a lower
  * rank than `from` in the TaskType's status list. Used for intentional loops
  * like "Review → In Progress" when the counterpart needs rework.
@@ -57,7 +57,7 @@ export interface WorkflowRuleAllowedLoop {
  *
  * Auto-create configuration. When present and `triggerStatuses` is non-empty,
  * the trigger creates a counterpart issue in `linkedProject` the first time
- * a source issue enters one of those statuses — but only if no counterpart
+ * a source issue enters one of those statuses - but only if no counterpart
  * exists yet under the rule's `linkKind` resolution.
  */
 export interface WorkflowRuleAutoCreate {

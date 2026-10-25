@@ -19,7 +19,7 @@ export { applyRuleToUpdate, isRegression } from './logic'
 /**
  * Trigger body for `OnWorkflowRuleMirror`. Fires on every `TxUpdateDoc` whose
  * `objectClass` derives from `tracker.class.Issue`. Short-circuits early when
- * the update is not a status change, which keeps this cheap on the hot path —
+ * the update is not a status change, which keeps this cheap on the hot path -
  * most issue updates are not status moves.
  *
  * See `docs/workflow-rules/DESIGN.md` for the end-to-end flow description.

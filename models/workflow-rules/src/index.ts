@@ -62,7 +62,7 @@ export class TWorkflowRule extends TDoc implements WorkflowRule {
   @Prop(TypeString(), workflowRules.string.LinkKind)
   linkKind!: WorkflowRuleLinkKind
 
-  // Nested JSON — see class JSDoc for the rationale.
+  // Nested JSON - see class JSDoc for the rationale.
   forwardMap!: WorkflowRule['forwardMap']
   allowedLoops!: WorkflowRuleAllowedLoop[]
   autoCreate?: WorkflowRuleAutoCreate

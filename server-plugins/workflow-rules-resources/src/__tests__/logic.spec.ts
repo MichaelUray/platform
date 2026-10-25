@@ -71,7 +71,7 @@ describe('isRegression', () => {
 
   it('returns false (does not block) when a status is unknown', () => {
     // Rank table missing one of the statuses: we don't know enough to say
-    // this is a regression, so we let it through — matches checkRegressionGuard.
+    // this is a regression, so we let it through - matches checkRegressionGuard.
     const unknown = 'status:unknown' as Ref<IssueStatus>
     expect(isRegression(unknown, s.review, rank, [])).toBe(false)
     expect(isRegression(s.review, unknown, rank, [])).toBe(false)

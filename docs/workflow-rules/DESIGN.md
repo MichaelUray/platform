@@ -17,7 +17,7 @@ visible to anyone who can read the project.
 
 A client-side listener would need a browser tab open to react. It would also
 run as whichever user happened to be looking at the issue, which is wrong for
-cross-space writes — the mirror must land as a privileged action, not as the
+cross-space writes - the mirror must land as a privileged action, not as the
 drag-drop author pretending to touch a space they may not even read. The
 existing server trigger pipeline is the right surface: `TxUpdateDoc(Issue,
 {status})` already fans out to one trigger (`OnIssueUpdate`) that today does
@@ -54,8 +54,8 @@ interface WorkflowRule extends Doc {
   // How to find the counterpart issue given an issue in `space`. The MVP ships
   // "sub-issue parent/child via `attachedTo`" because that is what the ecosystem
   // already uses for cross-project parenting (see `attachedToClass =
-  // tracker.class.Issue, collection = 'subIssues'`). Additional link kinds —
-  // ByCustomField, ByRelation — are stubbed in the interface but not wired
+  // tracker.class.Issue, collection = 'subIssues'`). Additional link kinds -
+  // ByCustomField, ByRelation - are stubbed in the interface but not wired
   // yet; the resolver dispatches on `linkKind` so adding them later is a pure
   // extension.
   linkKind: 'subIssue' | 'parentIssue'
@@ -63,7 +63,7 @@ interface WorkflowRule extends Doc {
   // Status mirror map. Keys and values are `Ref<IssueStatus>` so that renames
   // in the IssueStatus doc don't break the rule, and so that two statuses with
   // the same display name in different TaskTypes stay distinguishable.
-  // One direction only — a reverse rule in the other project supplies the
+  // One direction only - a reverse rule in the other project supplies the
   // other direction. This keeps the model symmetric and lets the two sides be
   // edited independently by their respective admins.
   forwardMap: Record<Ref<IssueStatus>, Ref<IssueStatus>>
@@ -71,8 +71,8 @@ interface WorkflowRule extends Doc {
   // Allowed "backwards" transitions. By default the trigger refuses to move
   // a linked issue to a status with a lower rank than its current one (so a
   // 'Posted' CAL item cannot be dragged back to 'Design' by a stray mirror).
-  // allowedLoops names the (from, to) pairs — in the TARGET project's
-  // statuses — that are legal regressions. Mirrors a workflow's own
+  // allowedLoops names the (from, to) pairs - in the TARGET project's
+  // statuses - that are legal regressions. Mirrors a workflow's own
   // "re-open after revisions" transitions.
   allowedLoops: Array<{
     from: Ref<IssueStatus>
@@ -102,7 +102,7 @@ interface WorkflowRule extends Doc {
 ```
 
 The ranks that enforce "no backwards move except via allowedLoops" come from
-the TARGET project's `TaskType.statuses` ordering — the array index inside
+the TARGET project's `TaskType.statuses` ordering - the array index inside
 that list is the rank. The rule does not store a separate rank table; the
 TaskType is the authority. Adding or reordering statuses in the UI
 re-ranks automatically.
@@ -124,7 +124,7 @@ builder.createDoc(serverCore.class.Trigger, core.space.Model, {
 The trigger body:
 
 1. Short-circuit on `tx.operations.status === undefined`. The vast majority of
-   issue updates have no status change — bailing early keeps the trigger cheap
+   issue updates have no status change - bailing early keeps the trigger cheap
    on the hot path.
 2. Short-circuit on a cascade token the trigger stamps on its own outputs
    (`TxApplyIf.scope = 'workflow-rule-mirror:<ruleId>'`). This is the same
@@ -147,7 +147,7 @@ The trigger body:
    via `componentMap`. If `componentMap` says `null` for this source
    component, skip creation (not a failure).
 6. If a counterpart exists, compute the target status via `forwardMap[new
-   status]`. If the map has no entry, do nothing (not a failure — it is how
+   status]`. If the map has no entry, do nothing (not a failure - it is how
    you say "this status does not move the mirror").
 7. Enforce the regression guard: if `targetStatusRank <
    counterpart.statusRank` AND `(counterpart.status, targetStatus)` is not in
@@ -160,7 +160,7 @@ The trigger body:
    its chained updates (see `doTimeReportUpdate` in `server-plugins/tracker-resources/src/index.ts`),
    so the mirror does not look like it happened in the future.
 
-The server has no notion of "which side moved last" — arbitration-by-mtime,
+The server has no notion of "which side moved last" - arbitration-by-mtime,
 which the daemon does today, is a workaround for polling. The trigger reacts
 to the actual Tx, so the ordering is whatever the Transactor applied, which
 is already the correct answer.
@@ -183,7 +183,7 @@ Writing the rule produces an ordinary `TxCreateDoc(WorkflowRule, ...)` via
 the normal `TxOperations.createDoc` surface, so the usual permission check
 applies: only members of `space` who can write to it can define rules on it.
 
-No bulk editor and no "copy from another project" button in v1 — a workspace
+No bulk editor and no "copy from another project" button in v1 - a workspace
 with many client projects pairing to many design projects should write a
 small admin script, which can use the normal `TxOperations` path and avoid
 needing special UI.
@@ -196,7 +196,7 @@ needing special UI.
 - Field mirroring beyond `status` on the update path (title/description/etc.
   only propagate on auto-create). Status is the shared vocabulary of a
   workflow; everything else is up to the counterpart project.
-- Delete propagation. Removing a source issue does NOT remove its mirror —
+- Delete propagation. Removing a source issue does NOT remove its mirror -
   the mirror is an independent doc owned by its own project, and the user
   decides when to close it.
 - Rule imports/exports to JSON. Nice-to-have; `rush test` ships one.
@@ -224,7 +224,7 @@ would otherwise widen the surface area reviewers have to assess.
 
 - Discussion #235 (this feature).
 - Discussion #236 (outbound webhooks). Independent.
-- Current workaround at Pixelique: `/opt/huly-sync/sync-daemon.ts` — the
+- Current workaround at Pixelique: `/opt/huly-sync/sync-daemon.ts` - the
   polling bidirectional sync daemon this feature retires once accepted
   upstream. The daemon's `CAL_TO_DES` / `DES_TO_CAL` / `allowedLoops` are a
   working reference for what the matrix editor must express.
