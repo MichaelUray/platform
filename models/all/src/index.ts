@@ -70,6 +70,7 @@ import { serverTelegramId, createModel as serverTelegramModel } from '@hcenginee
 import { serverTemplatesId, createModel as serverTemplatesModel } from '@hcengineering/model-server-templates'
 import { serverTrackerId, createModel as serverTrackerModel } from '@hcengineering/model-server-tracker'
 import { serverViewId, createModel as serverViewModel } from '@hcengineering/model-server-view'
+import { serverWorkflowRulesId, createModel as serverWorkflowRulesModel } from '@hcengineering/model-server-workflow-rules'
 import setting, { settingId, createModel as settingModel } from '@hcengineering/model-setting'
 import { supportId, createModel as supportModel } from '@hcengineering/model-support'
 import { tagsId, createModel as tagsModel } from '@hcengineering/model-tags'
@@ -548,6 +549,7 @@ export default function buildModel (): Builder {
     [serverTagsModel, serverTagsId],
     [serverTaskModel, serverTaskId],
     [serverTrackerModel, serverTrackerId],
+    [serverWorkflowRulesModel, serverWorkflowRulesId],
     [serverCardModel, serverCardId],
     [serverCalendarModel, serverCalendarId],
     [serverRecruitModel, serverRecruitId],
