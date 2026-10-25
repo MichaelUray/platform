@@ -125,6 +125,8 @@
     "@hcengineering/tags-assets": "workspace:^0.7.0",
     "@hcengineering/calendar-assets": "workspace:^0.7.0",
     "@hcengineering/tracker-assets": "workspace:^0.7.0",
+    "@hcengineering/workflow-rules-assets": "workspace:^0.7.0",
+    "@hcengineering/workflow-rules": "workspace:^0.7.0",
     "@hcengineering/board-assets": "workspace:^0.7.0",
     "@hcengineering/hr-assets": "workspace:^0.7.0",
     "@hcengineering/request-assets": "workspace:^0.7.0",

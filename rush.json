@@ -1536,6 +1536,11 @@
       "shouldPublish": true
     },
     {
+      "packageName": "@hcengineering/workflow-rules-assets",
+      "projectFolder": "plugins/workflow-rules-assets",
+      "shouldPublish": false
+    },
+    {
       "packageName": "@hcengineering/model-workflow-rules",
       "projectFolder": "models/workflow-rules",
       "shouldPublish": false
