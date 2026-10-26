@@ -25,10 +25,16 @@ export function applyRuleToUpdate (
 }
 
 /**
- * Pure helper: decide whether a transition `from -> to` on the TARGET side is
- * a regression that is NOT in `allowedLoops`. Takes just the status ids and
- * rank table (`statuses` array from the counterpart's TaskType) so the
+ * Pure helper: decide whether a transition `from -> to` on the TARGET side
+ * is a regression that is NOT in `allowedLoops`. Takes just the status ids
+ * and rank table (`statuses` array from the counterpart's TaskType) so the
  * regression-guard tests don't need a Huly control plane.
+ *
+ * Fails closed. Returns `true` (BLOCK) when either `from` or `to` is not a
+ * member of the rank table. The trigger validates TaskType membership
+ * upstream and should not call this helper with unknown statuses, but if
+ * it does the result refuses to apply the write rather than silently
+ * letting a stale, deleted or foreign status reference through.
  *
  * @public
  */
@@ -43,6 +49,6 @@ export function isRegression (
   }
   const fromIdx = rank.indexOf(from)
   const toIdx = rank.indexOf(to)
-  if (fromIdx === -1 || toIdx === -1) return false
+  if (fromIdx === -1 || toIdx === -1) return true
   return toIdx < fromIdx
 }

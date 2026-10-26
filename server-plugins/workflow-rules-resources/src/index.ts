@@ -17,17 +17,22 @@ import { isRegression } from './logic'
 export { applyRuleToUpdate, isRegression } from './logic'
 
 /**
- * Trigger body for `OnWorkflowRuleMirror`. Fires on every `TxUpdateDoc` whose
- * `objectClass` derives from `tracker.class.Issue`. Short-circuits early when
- * the update is not a status change, which keeps this cheap on the hot path -
- * most issue updates are not status moves.
+ * Trigger body for `OnWorkflowRuleMirror`. Fires on `TxUpdateDoc` whose
+ * `objectClass` derives from `tracker.class.Issue`. Short circuits early
+ * when the update is not a status change so the hot path stays cheap: most
+ * issue updates are not status moves.
  *
- * See `docs/workflow-rules/DESIGN.md` for the end-to-end flow description.
- * The echo-prevention here does NOT need a cascade token: the "no change
- * needed" check (`counterpart.status === target`) short-circuits the second
- * trigger invocation when the mirror lands on the counterpart. A cascade
- * token would still be the clearer design if we later want log-level
- * visibility into mirror chains; for v1 the equality check is sufficient.
+ * Cascade behavior (one hop). The trigger skips updates whose own tx `space`
+ * is `core.space.DerivedTx`, so a mirror update produced by this trigger
+ * cannot trigger another mirror. That also means status writes emitted by
+ * any other server trigger are not mirrored. For v1 this is the intended
+ * one hop semantics; multi hop would want a cascade-scoped visited set and
+ * a hard depth bound instead. See `docs/workflow-rules/DESIGN.md`.
+ *
+ * Rules read back from storage are validated per invocation. A malformed
+ * rule is skipped with a warn log; it does not abort the batch for other
+ * rules on the same source. Interface types do not validate persisted docs,
+ * so the trigger treats stored JSON as untrusted.
  *
  * @public
  */
@@ -35,6 +40,8 @@ export async function OnWorkflowRuleMirror (txes: Tx[], control: TriggerControl)
   const result: Tx[] = []
   for (const actualTx of txes) {
     if (actualTx._class !== core.class.TxUpdateDoc) continue
+    // Skip derived writes to bound mirror cascades to one hop.
+    if (actualTx.space === core.space.DerivedTx) continue
     const updateTx = actualTx as TxUpdateDoc<Issue>
     if (!control.hierarchy.isDerived(updateTx.objectClass, tracker.class.Issue)) continue
 
@@ -57,6 +64,11 @@ export async function OnWorkflowRuleMirror (txes: Tx[], control: TriggerControl)
     if (rules.length === 0) continue
 
     for (const rule of rules) {
+      if (!isValidRule(rule)) {
+        control.ctx.warn('[workflow-rules] invalid rule skipped', { ruleId: rule._id })
+        continue
+      }
+
       const counterpart = await resolveCounterpart(control, source, rule)
 
       if (counterpart === undefined) {
@@ -75,9 +87,13 @@ export async function OnWorkflowRuleMirror (txes: Tx[], control: TriggerControl)
         continue
       }
 
+      // Own property only. A persisted rule can contain non string mapping
+      // values. For an unmapped source value such as `constructor`, an
+      // ordinary object lookup can produce a non status value.
+      if (!Object.prototype.hasOwnProperty.call(rule.forwardMap, newStatus)) continue
       const target = rule.forwardMap[newStatus]
-      if (target == null) continue
-      if (counterpart.status === target) continue // echo short-circuit
+      if (typeof target !== 'string' || target.length === 0) continue
+      if (counterpart.status === target) continue
 
       const regressed = await checkRegressionGuard(control, counterpart, target, rule)
       if (regressed) {
@@ -110,9 +126,42 @@ export async function OnWorkflowRuleMirror (txes: Tx[], control: TriggerControl)
 }
 
 /**
+ * Shape check for a persisted `WorkflowRule` doc. The TypeScript interface
+ * does not validate stored JSON, so the trigger treats everything read from
+ * storage as untrusted. A malformed rule is skipped with a warn log; it
+ * does not abort processing for other rules on the same source.
+ *
+ * @public
+ */
+export function isValidRule (rule: WorkflowRule): boolean {
+  if (typeof rule.linkedProject !== 'string' || rule.linkedProject.length === 0) return false
+  if (rule.linkKind !== 'subIssue' && rule.linkKind !== 'parentIssue') return false
+  if (rule.forwardMap == null || typeof rule.forwardMap !== 'object' || Array.isArray(rule.forwardMap)) return false
+  for (const [from, to] of Object.entries(rule.forwardMap)) {
+    if (from.length === 0) return false
+    if (typeof to !== 'string' || to.length === 0) return false
+  }
+  if (!Array.isArray(rule.allowedLoops)) return false
+  for (const loop of rule.allowedLoops) {
+    if (loop == null) return false
+    if (typeof loop.from !== 'string' || loop.from.length === 0) return false
+    if (typeof loop.to !== 'string' || loop.to.length === 0) return false
+  }
+  if (rule.autoCreate != null) {
+    if (!Array.isArray(rule.autoCreate.triggerStatuses)) return false
+    for (const s of rule.autoCreate.triggerStatuses) {
+      if (typeof s !== 'string' || s.length === 0) return false
+    }
+  }
+  return true
+}
+
+/**
  * Resolve the counterpart Issue for a source Issue under a rule. Returns
- * `undefined` if no counterpart exists. Separate so the unit tests can
- * exercise each `linkKind` branch directly.
+ * `undefined` if no counterpart exists OR if the match is ambiguous
+ * (multiple children). The caller must treat ambiguity as absence and
+ * never silently update one of several candidates. Separate so the unit
+ * tests can exercise each `linkKind` branch directly.
  *
  * @public
  */
@@ -123,17 +172,21 @@ export async function resolveCounterpart (
 ): Promise<Issue | undefined> {
   switch (rule.linkKind) {
     case 'subIssue': {
-      const [found] = await control.findAll(
+      const found = await control.findAll(
         control.ctx,
         tracker.class.Issue,
         {
           attachedTo: source._id,
           attachedToClass: tracker.class.Issue,
+          collection: 'subIssues',
           space: rule.linkedProject
         },
-        { limit: 1 }
+        { limit: 2 }
       )
-      return found
+      // Require a unique match. Ambiguity (two or more children) is treated
+      // as absence; the mirror does not pick one at the database's whim.
+      if (found.length !== 1) return undefined
+      return found[0]
     }
     case 'parentIssue': {
       if (source.attachedTo == null) return undefined
@@ -150,7 +203,6 @@ export async function resolveCounterpart (
       return found
     }
     default: {
-      // Exhaustive check; a new WorkflowRuleLinkKind should be handled here.
       const _exhaustive: never = rule.linkKind
       return undefined
     }
@@ -159,12 +211,16 @@ export async function resolveCounterpart (
 
 /**
  * Decide whether a proposed mirror update would move the counterpart to a
- * lower-rank status without an explicit `allowedLoops` entry. Rank is the
- * index position of a status in the TaskType's `statuses` list of the target
- * project; the TaskType is the authority on ordering.
+ * lower rank status without an explicit `allowedLoops` entry. Rank is the
+ * index position of a status in the TaskType's `statuses` list of the
+ * target project; the TaskType is the authority on ordering.
  *
- * Returns `true` to BLOCK the move (regressed without a loop allowance),
- * `false` to let it through.
+ * Fails closed. Returns `true` (BLOCK) when the counterpart's TaskType
+ * cannot be read, when either `counterpart.status` or `target` is not a
+ * member of that TaskType's status list, or when `allowedLoops` is
+ * malformed. Only a verified pair is subject to the ordinary rank
+ * comparison. An `allowedLoops` entry must not authorize a status that
+ * does not exist in the target.
  *
  * @public
  */
@@ -180,9 +236,15 @@ export async function checkRegressionGuard (
     { _id: counterpart.kind },
     { limit: 1 }
   )
-  if (tt === undefined) return false
+  if (tt === undefined || !Array.isArray(tt.statuses)) return true
 
-  const statuses: Array<Ref<IssueStatus>> = (tt.statuses as Array<Ref<IssueStatus>>) ?? []
+  const statuses: Array<Ref<IssueStatus>> = tt.statuses as Array<Ref<IssueStatus>>
+  if (!statuses.includes(counterpart.status) || !statuses.includes(target)) return true
+  if (!Array.isArray(rule.allowedLoops)) return true
+  for (const loop of rule.allowedLoops) {
+    if (loop == null || typeof loop.from !== 'string' || typeof loop.to !== 'string') return true
+  }
+
   return isRegression(counterpart.status, target, statuses, rule.allowedLoops)
 }
 

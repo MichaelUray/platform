@@ -59,8 +59,6 @@ describe('isRegression', () => {
   })
 
   it('is strict about the direction of the allow-list entry', () => {
-    // Allow-list entry is Review -> InProgress. Attempting Done -> Review is a
-    // different pair and should still be blocked.
     const allowedLoops: WorkflowRule['allowedLoops'] = [{ from: s.review, to: s.inProgress }]
     expect(isRegression(s.done, s.review, rank, allowedLoops)).toBe(true)
   })
@@ -69,11 +67,13 @@ describe('isRegression', () => {
     expect(isRegression(s.review, s.review, rank, [])).toBe(false)
   })
 
-  it('returns false (does not block) when a status is unknown', () => {
-    // Rank table missing one of the statuses: we don't know enough to say
-    // this is a regression, so we let it through - matches checkRegressionGuard.
+  it('fails closed when a status is unknown', () => {
+    // Rank table missing one of the statuses: the trigger validates
+    // TaskType membership upstream and must not reach the helper with an
+    // unknown status, but if it does the helper refuses to apply the
+    // write rather than silently letting it through.
     const unknown = 'status:unknown' as Ref<IssueStatus>
-    expect(isRegression(unknown, s.review, rank, [])).toBe(false)
-    expect(isRegression(s.review, unknown, rank, [])).toBe(false)
+    expect(isRegression(unknown, s.review, rank, [])).toBe(true)
+    expect(isRegression(s.review, unknown, rank, [])).toBe(true)
   })
 })
