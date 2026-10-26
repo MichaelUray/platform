@@ -23,13 +23,19 @@
   import TagsPopup from './TagsPopup.svelte'
 
   export let object: Doc
-  export let targetClass: Ref<Class<Doc>> = object._class
+  export let targetClass: Ref<Class<Doc>> | undefined = undefined
+  export let attachedToClass: Ref<Class<Doc>> | undefined = undefined
+  export let collection: string = 'labels'
 
   let selected: Ref<TagElement>[] = []
   const query = createQuery()
+  $: referenceClass = attachedToClass ?? object._class
+  $: tagTargetClass = targetClass ?? object._class
+  // A new scope object also distinguishes leaving and returning to the same document.
+  $: scope = { object: { ...object }, referenceClass, collection }
   $: query.query(
     tags.class.TagReference,
-    { attachedTo: object._id, attachedToClass: object._class, collection: 'labels' },
+    { attachedTo: object._id, attachedToClass: referenceClass, collection },
     (result) => {
       selected = result.map(({ tag }) => tag)
     }
@@ -37,25 +43,27 @@
   const client = getClient()
   const hierarchy = client.getHierarchy()
   async function addRef (tag: TagElement): Promise<void> {
-    if (!(await addTagReference(client, object, tag))) return
+    const origin = scope
+    if (!(await addTagReference(client, origin.object, tag, origin.collection, origin.referenceClass))) return
 
-    if (!selected.includes(tag._id)) selected = [...selected, tag._id]
-    const id = await getObjectId(object, hierarchy)
-    Analytics.handleEvent(TagsEvents.TagCreated, { objectId: id, objectClass: object._class })
+    if (scope === origin && !selected.includes(tag._id)) selected = [...selected, tag._id]
+    const id = await getObjectId(origin.object, hierarchy)
+    Analytics.handleEvent(TagsEvents.TagCreated, { objectId: id, objectClass: origin.object._class })
   }
 
   async function removeTag (tag: TagElement): Promise<void> {
+    const origin = scope
     const tagRef = await client.findOne(tags.class.TagReference, {
       tag: tag._id,
-      attachedTo: object._id,
-      attachedToClass: object._class,
-      collection: 'labels'
+      attachedTo: origin.object._id,
+      attachedToClass: origin.referenceClass,
+      collection: origin.collection
     })
-    if (tagRef) {
+    if (tagRef !== undefined) {
       await client.remove(tagRef)
-      selected = selected.filter((id) => id !== tag._id)
-      const id = await getObjectId(object, hierarchy)
-      Analytics.handleEvent(TagsEvents.TagRemoved, { objectId: id, objectClass: object._class })
+      if (scope === origin) selected = selected.filter((id) => id !== tag._id)
+      const id = await getObjectId(origin.object, hierarchy)
+      Analytics.handleEvent(TagsEvents.TagRemoved, { objectId: id, objectClass: origin.object._class })
     }
   }
 
@@ -71,4 +79,4 @@
   }
 </script>
 
-<TagsPopup {targetClass} {selected} on:update={onUpdate} />
+<TagsPopup targetClass={tagTargetClass} {selected} on:update={onUpdate} />

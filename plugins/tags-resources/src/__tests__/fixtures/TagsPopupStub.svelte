@@ -1,4 +1,5 @@
 <!-- SPDX-License-Identifier: EPL-2.0 -->
+<!-- Synthetic handler harness: permanent controls do not implement TagsPopup selection toggling. -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
 

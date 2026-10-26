@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { AnyAttribute, Class, Doc, Ref } from '@hcengineering/core'
-  import { IntlString } from '@hcengineering/platform'
+  import { Analytics } from '@hcengineering/analytics'
+  import type { AnyAttribute, Class, Doc, Ref } from '@hcengineering/core'
+  import type { IntlString } from '@hcengineering/platform'
   import { createQuery, getClient } from '@hcengineering/presentation'
-  import tags, { TagReference, TagsEvents } from '@hcengineering/tags'
+  import tags, { TagsEvents } from '@hcengineering/tags'
+  import type { TagReference } from '@hcengineering/tags'
   import { Icon, Label, getEventPopupPositionElement, showPopup } from '@hcengineering/ui'
   import { getObjectId } from '@hcengineering/view-resources'
-  import { Analytics } from '@hcengineering/analytics'
 
   import TagReferencePresenter from './TagReferencePresenter.svelte'
   import TagsEditorPopup from './TagsEditorPopup.svelte'
@@ -15,25 +16,39 @@
   export let label: IntlString = tags.string.AddLabel
   export let readonly: boolean = false
   export let attr: AnyAttribute | undefined = undefined
-  export let targetClass: Ref<Class<Doc>> = object._class
+  // InlineAttributeBarEditor supplies the attribute name and its declaring class.
+  export let attribute: AnyAttribute | undefined = undefined
+  export let attributeKey: string = 'labels'
+  export let targetClass: Ref<Class<Doc>> | undefined = undefined
 
   let items: TagReference[] = []
   const query = createQuery()
   const client = getClient()
   const hierarchy = client.getHierarchy()
 
-  $: query.query(tags.class.TagReference, { attachedTo: object._id }, (result) => {
-    items = result
-  })
-  async function tagsHandler(evt: MouseEvent): Promise<void> {
+  // Inherited collections keep the concrete document scope; mixin collections use the mixin scope.
+  $: attachedToClass =
+    attribute !== undefined && hierarchy.isMixin(attribute.attributeOf) ? attribute.attributeOf : object._class
+  $: tagTargetClass = targetClass ?? attachedToClass
+  $: query.query(
+    tags.class.TagReference,
+    { attachedTo: object._id, attachedToClass, collection: attributeKey },
+    (result) => {
+      items = result
+    }
+  )
+  async function tagsHandler (evt: MouseEvent): Promise<void> {
     if (readonly) return
-    showPopup(TagsEditorPopup, { object, targetClass }, getEventPopupPositionElement(evt), undefined, undefined, {
-      refId: 'TagsPopup',
-      category: 'popup',
-      overlay: true
-    })
+    showPopup(
+      TagsEditorPopup,
+      { object, targetClass: tagTargetClass, attachedToClass, collection: attributeKey },
+      getEventPopupPositionElement(evt),
+      undefined,
+      undefined,
+      { refId: 'TagsPopup', category: 'popup', overlay: true }
+    )
   }
-  async function removeTag(tag: TagReference): Promise<void> {
+  async function removeTag (tag: TagReference): Promise<void> {
     if (tag !== undefined) {
       await client.remove(tag)
       const id = await getObjectId(object, hierarchy)

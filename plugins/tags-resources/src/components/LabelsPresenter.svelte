@@ -28,18 +28,22 @@
 
   $: update(object, value)
 
-  function update(object: WithLookup<Doc>, value: number) {
+  function update (object: WithLookup<Doc>, value: number): void {
     if (value > 0) {
-      query.query(tags.class.TagReference, { attachedTo: object._id }, (result) => {
-        items = result.slice(ignoreFirst ? 1 : 0)
-      })
+      query.query(
+        tags.class.TagReference,
+        { attachedTo: object._id, attachedToClass: object._class, collection: 'labels' },
+        (result) => {
+          items = result.slice(ignoreFirst ? 1 : 0)
+        }
+      )
     } else {
       query.unsubscribe()
       items = []
     }
   }
 
-  async function tagsHandler(evt: MouseEvent): Promise<void> {
+  async function tagsHandler (evt: MouseEvent): Promise<void> {
     showPopup(TagsEditorPopup, { object }, getEventPopupPositionElement(evt), undefined, undefined, {
       refId: 'TagsPopup',
       category: 'popup',

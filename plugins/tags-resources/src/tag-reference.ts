@@ -6,7 +6,7 @@ import type { TagElement, TagReference } from '@hcengineering/tags'
 
 // Editors share reservations through the stable clientProxy identity returned by getClient().
 const pendingReferences = new WeakMap<
-  Pick<TxOperations, 'findAll' | 'addCollection'>,
+  Pick<TxOperations, 'findAllPage' | 'addCollection'>,
   Map<Ref<Doc>, Array<Pick<TagReference, 'tag' | 'attachedToClass' | 'collection'>>>
 >()
 
@@ -19,12 +19,14 @@ export function hasTagReference (
 }
 
 /**
- * Add a label once, including while another editor is still attaching it.
+ * Add a tag reference once, including while another editor is still attaching it.
  * Duplicates silently return false. An in-flight duplicate does not wait for the original
  * caller's result or retry if that caller fails; the original caller handles the error.
+ * Each nonreserved attempt reads one fresh page (at most one reference) through the connection.
+ * Reservations cover that read and write; this is not cross-client/server uniqueness.
  */
 export async function addTagReference (
-  client: Pick<TxOperations, 'findAll' | 'addCollection'>,
+  client: Pick<TxOperations, 'findAllPage' | 'addCollection'>,
   object: Pick<Doc, '_id' | '_class' | 'space'>,
   tag: TagElement,
   collection = 'labels',
@@ -48,13 +50,14 @@ export async function addTagReference (
   pending.push(reference)
   documents.set(object._id, pending)
   try {
-    const existing = await client.findAll(tags.class.TagReference, {
-      attachedTo: object._id,
-      attachedToClass,
-      collection,
-      tag: tag._id
-    })
-    if (hasTagReference(existing, tag)) return false
+    // UIClient.findAll reuses LiveQuery results, which can lag behind a completed write.
+    // The paged API reads through the connection without that cache or clearing other queries.
+    const existing = await client.findAllPage(
+      tags.class.TagReference,
+      { attachedTo: object._id, attachedToClass, collection, tag: tag._id },
+      { limit: 1 }
+    )
+    if (hasTagReference(existing.docs, tag)) return false
 
     await client.addCollection(tags.class.TagReference, object.space, object._id, attachedToClass, collection, {
       tag: tag._id,

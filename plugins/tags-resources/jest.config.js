@@ -7,7 +7,8 @@ module.exports = {
   },
   transformIgnorePatterns: ['node_modules/(?!(?:\\.pnpm/)?svelte(?:/|@))'],
   moduleNameMapper: {
-    '^\\./TagsPopup\\.svelte$': '<rootDir>/src/__tests__/fixtures/TagsPopupStub.svelte',
-    '^\\./TagsEditor\\.svelte$': '<rootDir>/src/__tests__/fixtures/TagsEditorStub.svelte'
+    '^@hcengineering/text$': '<rootDir>/src/__tests__/fixtures/text-stub.ts',
+    '^\\./(?:TagReferencePresenter|TagItem|TagsReferencePresenter|TagsItemPresenter)\\.svelte$':
+      '<rootDir>/src/__tests__/fixtures/TagReferenceStub.svelte'
   }
 }

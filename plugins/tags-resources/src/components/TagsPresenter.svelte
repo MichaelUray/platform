@@ -15,9 +15,8 @@
 <script lang="ts">
   import { Class, Doc, Ref } from '@hcengineering/core'
   import { Asset } from '@hcengineering/platform'
-  import { getClient } from '@hcengineering/presentation'
+  import { createQuery, getClient } from '@hcengineering/presentation'
   import { AnySvelteComponent, Icon, tooltip } from '@hcengineering/ui'
-  import { getCollectionCounter } from '@hcengineering/view-resources'
   import tagsId from '../plugin'
   import TagsPresentationPopup from './TagsPresentationPopup.svelte'
 
@@ -27,9 +26,17 @@
   export let icon: Asset | AnySvelteComponent = tagsId.icon.Tags
 
   const client = getClient()
+  const query = createQuery()
+  let tags = 0
 
   $: attr = client.getHierarchy().getAttribute(_class, key)
-  $: tags = getCollectionCounter(client.getHierarchy(), value, { key, attr }) ?? 0
+  $: query.query(
+    tagsId.class.TagReference,
+    { attachedTo: value._id, attachedToClass: _class, collection: key },
+    (references) => {
+      tags = references.length
+    }
+  )
 </script>
 
 {#if tags > 0}

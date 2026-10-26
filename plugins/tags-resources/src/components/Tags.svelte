@@ -45,6 +45,50 @@
     await addTagReference(client, object, tag, key.key, _class)
   }
 
+  const pendingToggles = new Map<string, Promise<void>>()
+
+  async function toggleTag (tag: TagElement, selected: boolean): Promise<void> {
+    const origin = { object: { ...object }, referenceClass: _class, collection: key.key }
+    const scopeKey = JSON.stringify([origin.object._id, origin.referenceClass, origin.collection, tag._id])
+    const previous = pendingToggles.get(scopeKey)
+    // Preserve click order and permit later intent after a failed operation.
+    const operation = (async () => {
+      if (previous !== undefined) await previous.catch(() => {})
+      if (selected) {
+        await addTagReference(client, origin.object, tag, origin.collection, origin.referenceClass)
+      } else {
+        // The add can finish before LiveQuery reports its reference, so remove from fresh state too.
+        const result = await client.findAllPage(
+          tags.class.TagReference,
+          {
+            attachedTo: origin.object._id,
+            attachedToClass: origin.referenceClass,
+            collection: origin.collection,
+            tag: tag._id
+          },
+          { limit: 1 }
+        )
+        const reference = result.docs[0]
+        if (reference !== undefined) {
+          await client.removeCollection(
+            tags.class.TagReference,
+            reference.space,
+            reference._id,
+            origin.object._id,
+            origin.referenceClass,
+            origin.collection
+          )
+        }
+      }
+    })()
+    pendingToggles.set(scopeKey, operation)
+    try {
+      await operation
+    } finally {
+      if (pendingToggles.get(scopeKey) === operation) pendingToggles.delete(scopeKey)
+    }
+  }
+
   async function removeTag (id: Ref<TagReference>): Promise<void> {
     await client.removeCollection(tags.class.TagReference, object.space, id, object._id, _class, key.key)
   }
@@ -63,6 +107,7 @@
   {readonly}
   bind:items
   targetClass={_class}
+  onToggle={toggleTag}
   on:open={(evt) => {
     void addRef(evt.detail).catch(handleError)
   }}
