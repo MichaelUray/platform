@@ -29,8 +29,12 @@ describe('getBlobRef', () => {
   })
 
   it.each([
+    [64, 64],
+    [64, 400],
+    [200, 400],
     [300, 400],
-    [400, 400]
+    [400, 400],
+    [400, 200]
   ])('requests a full-resolution crop at every DPR for a %ix%i preview', async (width, height) => {
     const result = await getBlobRef(blob, 'screenshot.png', width, height)
 

@@ -18,26 +18,21 @@
   import { Image } from '@hcengineering/presentation'
 
   import BrokenImage from './icons/BrokenImage.svelte'
+  import type { ImageDimensions } from '../image'
   import { AttachmentImageSize } from '../types'
   import { getImageDimensions } from '../utils'
 
   export let value: WithLookup<Attachment> | BlobType
   export let size: AttachmentImageSize = 'auto'
 
-  interface Dimensions {
-    width: number
-    height: number
-    fit: 'cover' | 'contain'
-  }
-
   const minSizeRem = 4
   const maxSizeRem = 25
 
-  let dimensions: Dimensions
+  let dimensions: ImageDimensions
 
   $: dimensions = getDimensions(value, size)
 
-  function getDimensions(value: Attachment | BlobType, size: AttachmentImageSize): Dimensions {
+  function getDimensions (value: Attachment | BlobType, size: AttachmentImageSize): ImageDimensions {
     const byDefault = { width: 300, height: 300, fit: 'contain' } as const
     if (size === 'auto' || size == null) return byDefault
 
@@ -53,28 +48,29 @@
     )
   }
 
-  function toStyle(size: 'auto' | number): string {
-    return size === 'auto' ? 'auto' : `${size}px`
-  }
-
   let loading = false
   let error = false
 
-  function handleLoadStart(): void {
+  function handleLoadStart (): void {
     loading = true
   }
 
-  function handleLoad(): void {
+  function handleLoad (): void {
     loading = false
   }
 
-  function handleError(): void {
+  function handleError (): void {
     loading = false
     error = true
   }
 </script>
 
-<div class="container" class:loading style="width:{toStyle(dimensions.width)}; height:{toStyle(dimensions.height)}">
+<div
+  class="container"
+  class:loading
+  style:width={`${dimensions.width}px`}
+  style:aspect-ratio={`${dimensions.width} / ${dimensions.height}`}
+>
   {#if error}
     <div class="image-overlay">
       <BrokenImage size={'large'} />
@@ -100,7 +96,10 @@
 <style lang="scss">
   .container {
     display: inline-flex;
+    position: relative;
+    min-width: 0;
     max-width: 100%;
+    height: auto;
     background-color: var(--theme-link-preview-bg-color);
     border-radius: 0.75rem;
     overflow: hidden;

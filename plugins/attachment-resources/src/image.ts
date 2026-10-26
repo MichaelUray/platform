@@ -6,11 +6,30 @@ export interface ImageDimensions {
   fit: 'cover' | 'contain'
 }
 
-/** Calculate thumbnail dimensions from image size and pixel bounds. */
+/**
+ * Calculate thumbnail dimensions from image size and valid positive pixel bounds.
+ * Preserve the whole image until proportional scaling makes it narrower than the
+ * minimum width or half its bounded source width. Below that threshold, switch
+ * to a readable-width cover crop. This is intentionally a discrete change: with
+ * 64–400 pixel bounds, 400×800 is 200×400 contain, but 400×801 is 400×400 cover.
+ * Small images may be enlarged to satisfy both minimum dimensions.
+ * Missing, non-finite or non-positive source dimensions use a minimum-size cover crop.
+ */
 export function getBoundedImageDimensions (
-  size: { width: number, height: number },
+  size: { width?: number, height?: number },
   bounds: { maxWidth: number, minWidth: number, maxHeight: number, minHeight: number }
 ): ImageDimensions {
+  if (
+    size.width === undefined ||
+    size.height === undefined ||
+    !Number.isFinite(size.width) ||
+    !Number.isFinite(size.height) ||
+    size.width <= 0 ||
+    size.height <= 0
+  ) {
+    return { width: Math.round(bounds.minWidth), height: Math.round(bounds.minHeight), fit: 'cover' }
+  }
+
   const ratio = size.height / size.width
 
   let width = Math.min(size.width, bounds.maxWidth)

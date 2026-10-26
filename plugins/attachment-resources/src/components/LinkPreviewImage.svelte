@@ -25,7 +25,7 @@
   let previewSrc: string | undefined
   let retryCount = 0
 
-  function refreshPreviewSrc(): void {
+  function refreshPreviewSrc (): void {
     if (src === undefined) {
       previewSrc = undefined
       return
@@ -51,8 +51,9 @@
         loading="lazy"
         class="link-preview__image"
         alt="link-preview"
-        width={`${width}px`}
-        height={`${height}px`}
+        {width}
+        {height}
+        style:aspect-ratio={height !== undefined ? `${width} / ${height}` : undefined}
         style:object-fit={fit}
         on:error={() => {
           refreshPreviewSrc()
@@ -65,8 +66,9 @@
       loading="lazy"
       class="link-preview__image"
       alt="link-preview"
-      width={`${width}px`}
-      height={`${height}px`}
+      {width}
+      {height}
+      style:aspect-ratio={height !== undefined ? `${width} / ${height}` : undefined}
       style:object-fit={fit}
       on:error={() => {
         refreshPreviewSrc()
@@ -79,7 +81,9 @@
   .link-preview__image {
     margin-top: 0.5rem;
     border-radius: 0.375rem;
-    max-width: 24.5rem;
+    max-width: min(24.5rem, 100%);
     max-height: 15rem;
+    height: auto;
+    object-position: top;
   }
 </style>

@@ -50,8 +50,11 @@ describe('getBoundedImageDimensions', () => {
     })
   })
 
-  it('enforces both minimum dimensions for small images', () => {
-    expect(getBoundedImageDimensions({ width: 20, height: 40 }, bounds)).toEqual({
+  it.each([
+    { width: 20, height: 40 },
+    { width: 40, height: 40 }
+  ])('enforces both minimum dimensions for small images: %j', (size) => {
+    expect(getBoundedImageDimensions(size, bounds)).toEqual({
       width: 64,
       height: 64,
       fit: 'cover'
@@ -79,12 +82,64 @@ describe('getBoundedImageDimensions', () => {
     expect(getBoundedImageDimensions(size, bounds)).toEqual(expected)
   })
 
-  it('uses the supplied bounds for link preview images', () => {
-    expect(
-      getBoundedImageDimensions(
-        { width: 300, height: 4000 },
-        { minWidth: 64, maxWidth: 376, minHeight: 64, maxHeight: 240 }
-      )
-    ).toEqual({ width: 300, height: 240, fit: 'cover' })
+  it.each<[number, number, 'cover' | 'contain']>([
+    [799, 200, 'contain'],
+    [800, 200, 'contain'],
+    [801, 400, 'cover']
+  ])('switches to a readable crop only below half the bounded source width: 400×%i', (height, width, fit) => {
+    expect(getBoundedImageDimensions({ width: 400, height }, bounds)).toEqual({ width, height: 400, fit })
+  })
+
+  it.each<[number, number, 'cover' | 'contain']>([
+    [800, 64, 'contain'],
+    [801, 128, 'cover']
+  ])('switches to a readable crop only below the minimum width: 128×%i', (height, width, fit) => {
+    expect(getBoundedImageDimensions({ width: 128, height }, bounds)).toEqual({ width, height: 400, fit })
+  })
+
+  it.each([
+    {},
+    { width: 400 },
+    { height: 400 },
+    { width: undefined, height: 400 },
+    { width: 400, height: undefined },
+    { width: 0, height: 400 },
+    { width: 400, height: 0 },
+    { width: 0, height: 0 },
+    { width: -1, height: 400 },
+    { width: 400, height: -1 },
+    { width: NaN, height: 400 },
+    { width: 400, height: NaN },
+    { width: Infinity, height: 400 },
+    { width: 400, height: Infinity },
+    { width: -Infinity, height: 400 },
+    { width: 400, height: -Infinity }
+  ])('falls back to the supplied minimum dimensions for invalid metadata: %p', (size) => {
+    expect(getBoundedImageDimensions(size, bounds)).toEqual({ width: 64, height: 64, fit: 'cover' })
+    expect(getBoundedImageDimensions(size, { ...bounds, minWidth: 80, minHeight: 48 })).toEqual({
+      width: 80,
+      height: 48,
+      fit: 'cover'
+    })
+  })
+
+  it.each([376, 392])('uses the supplied bounds for link preview images with a maximum width of %i', (maxWidth) => {
+    const linkBounds = { minWidth: 64, maxWidth, minHeight: 64, maxHeight: 240 }
+
+    expect(getBoundedImageDimensions({ width: 300, height: 4000 }, linkBounds)).toEqual({
+      width: 300,
+      height: 240,
+      fit: 'cover'
+    })
+    expect(getBoundedImageDimensions({ width: 800, height: 16000 }, linkBounds)).toEqual({
+      width: maxWidth,
+      height: 240,
+      fit: 'cover'
+    })
+    expect(getBoundedImageDimensions({ width: 300, height: 480 }, linkBounds)).toEqual({
+      width: 150,
+      height: 240,
+      fit: 'contain'
+    })
   })
 })
