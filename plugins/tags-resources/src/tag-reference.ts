@@ -4,6 +4,7 @@ import type { Class, Doc, Ref, TxOperations } from '@hcengineering/core'
 import tags from '@hcengineering/tags'
 import type { TagElement, TagReference } from '@hcengineering/tags'
 
+// Editors share reservations through the stable clientProxy identity returned by getClient().
 const pendingReferences = new WeakMap<
   Pick<TxOperations, 'findAll' | 'addCollection'>,
   Map<Ref<Doc>, Array<Pick<TagReference, 'tag' | 'attachedToClass' | 'collection'>>>
@@ -17,7 +18,11 @@ export function hasTagReference (
   return references.some((ref) => ref.tag === tag._id)
 }
 
-/** Add a label once, including while another editor is still attaching it. */
+/**
+ * Add a label once, including while another editor is still attaching it.
+ * Duplicates silently return false. An in-flight duplicate does not wait for the original
+ * caller's result or retry if that caller fails; the original caller handles the error.
+ */
 export async function addTagReference (
   client: Pick<TxOperations, 'findAll' | 'addCollection'>,
   object: Pick<Doc, '_id' | '_class' | 'space'>,
@@ -46,7 +51,8 @@ export async function addTagReference (
     const existing = await client.findAll(tags.class.TagReference, {
       attachedTo: object._id,
       attachedToClass,
-      collection
+      collection,
+      tag: tag._id
     })
     if (hasTagReference(existing, tag)) return false
 

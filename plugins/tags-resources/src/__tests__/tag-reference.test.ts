@@ -3,6 +3,7 @@
 import type { Class, Doc, Ref, Space } from '@hcengineering/core'
 import type { TagElement, TagReference } from '@hcengineering/tags'
 import { addTagReference, hasTagReference } from '../tag-reference'
+import { deferred } from './deferred'
 
 jest.mock(
   '@hcengineering/tags',
@@ -55,7 +56,8 @@ describe('addTagReference', () => {
     expect(client.findAll).toHaveBeenCalledWith('tags:class:TagReference', {
       attachedTo: object._id,
       attachedToClass: object._class,
-      collection: 'labels'
+      collection: 'labels',
+      tag: tag._id
     })
     expect(client.addCollection).not.toHaveBeenCalled()
   })
@@ -72,18 +74,18 @@ describe('addTagReference', () => {
     'blocks concurrent adds of the same tag from separate editors: %o',
     async (duplicate) => {
       const client = createClient()
-      let finish!: () => void
+      const started = deferred<void>()
+      const finish = deferred<void>()
       client.addCollection.mockImplementationOnce(async () => {
-        await new Promise<void>((resolve) => {
-          finish = resolve
-        })
+        started.resolve()
+        await finish.promise
         return 'reference'
       })
       const first = addTagReference(client, object, tag)
-      await Promise.resolve()
+      await started.promise
 
       expect(await addTagReference(client, object, duplicate)).toBe(false)
-      finish()
+      finish.resolve()
       expect(await first).toBe(true)
       expect(client.addCollection).toHaveBeenCalledTimes(1)
     }
@@ -97,7 +99,8 @@ describe('addTagReference', () => {
         (ref) =>
           ref.attachedTo === query.attachedTo &&
           ref.attachedToClass === query.attachedToClass &&
-          ref.collection === query.collection
+          ref.collection === query.collection &&
+          ref.tag === query.tag
       )
     })
 
@@ -107,18 +110,18 @@ describe('addTagReference', () => {
 
   it.each(scopes)('allows concurrent adds in different scopes: %o', async (scope) => {
     const client = createClient()
-    let finish!: () => void
+    const started = deferred<void>()
+    const finish = deferred<void>()
     client.addCollection.mockImplementationOnce(async () => {
-      await new Promise<void>((resolve) => {
-        finish = resolve
-      })
+      started.resolve()
+      await finish.promise
       return 'reference'
     })
     const first = addTagReference(client, object, tag)
-    await Promise.resolve()
+    await started.promise
 
     expect(await addTagReference(client, object, tag, scope.collection, scope.attachedToClass)).toBe(true)
-    finish()
+    finish.resolve()
     expect(await first).toBe(true)
     expect(client.addCollection).toHaveBeenCalledTimes(2)
   })
@@ -151,7 +154,8 @@ describe('addTagReference', () => {
     expect(client.findAll).toHaveBeenCalledWith('tags:class:TagReference', {
       attachedTo: object._id,
       attachedToClass: candidateClass,
-      collection: 'skills'
+      collection: 'skills',
+      tag: tag._id
     })
     expect(client.addCollection).toHaveBeenCalledWith(
       'tags:class:TagReference',
@@ -170,6 +174,61 @@ describe('addTagReference', () => {
 
     await expect(addTagReference(client, object, tag)).rejects.toThrow(error)
     expect(await addTagReference(client, object, tag)).toBe(true)
+  })
+
+  it('blocks duplicates while the persisted lookup is still pending', async () => {
+    const client = createClient()
+    const lookup = deferred<never[]>()
+    client.findAll.mockReturnValueOnce(lookup.promise)
+    const first = addTagReference(client, object, tag)
+
+    expect(await addTagReference(client, object, tag)).toBe(false)
+    expect(client.findAll).toHaveBeenCalledTimes(1)
+    expect(client.addCollection).not.toHaveBeenCalled()
+    lookup.resolve([])
+    expect(await first).toBe(true)
+    expect(client.addCollection).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves failure handling to the original caller and permits a later retry', async () => {
+    const client = createClient()
+    const started = deferred<void>()
+    const finish = deferred<void>()
+    const error = new Error('Offline')
+    client.addCollection.mockImplementationOnce(async () => {
+      started.resolve()
+      await finish.promise
+      return 'reference'
+    })
+    const first = addTagReference(client, object, tag)
+    const failure = expect(first).rejects.toThrow(error)
+    await started.promise
+
+    expect(await addTagReference(client, object, tag)).toBe(false)
+    finish.reject(error)
+    await failure
+    expect(await addTagReference(client, object, tag)).toBe(true)
+    expect(client.addCollection).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps reservations isolated between clients', async () => {
+    const client = createClient()
+    const otherClient = createClient()
+    const started = deferred<void>()
+    const finish = deferred<void>()
+    client.addCollection.mockImplementationOnce(async () => {
+      started.resolve()
+      await finish.promise
+      return 'reference'
+    })
+    const first = addTagReference(client, object, tag)
+    await started.promise
+
+    expect(await addTagReference(otherClient, object, tag)).toBe(true)
+    finish.resolve()
+    expect(await first).toBe(true)
+    expect(client.addCollection).toHaveBeenCalledTimes(1)
+    expect(otherClient.addCollection).toHaveBeenCalledTimes(1)
   })
 
   it('allows reattaching a removed label', async () => {

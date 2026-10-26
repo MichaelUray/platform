@@ -13,9 +13,11 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { Class, Doc, Ref } from '@hcengineering/core'
-  import { createQuery, getClient, KeyedAttribute } from '@hcengineering/presentation'
-  import { TagElement, TagReference } from '@hcengineering/tags'
+  import { Analytics } from '@hcengineering/analytics'
+  import type { Class, Doc, Ref } from '@hcengineering/core'
+  import { createQuery, getClient } from '@hcengineering/presentation'
+  import type { KeyedAttribute } from '@hcengineering/presentation'
+  import type { TagElement, TagReference } from '@hcengineering/tags'
   import tags from '../plugin'
   import TagsEditor from './TagsEditor.svelte'
   import { addTagReference } from '../tag-reference'
@@ -39,16 +41,20 @@
     { sort: { weight: -1, title: 1 } }
   )
 
-  async function addRef(tag: TagElement): Promise<void> {
+  async function addRef (tag: TagElement): Promise<void> {
     await addTagReference(client, object, tag, key.key, _class)
   }
 
-  async function removeTag(id: Ref<TagReference>): Promise<void> {
+  async function removeTag (id: Ref<TagReference>): Promise<void> {
     await client.removeCollection(tags.class.TagReference, object.space, id, object._id, _class, key.key)
   }
 
-  async function updateWeight(tag: TagReference, weight: TagReference['weight']): Promise<void> {
+  async function updateWeight (tag: TagReference, weight: TagReference['weight']): Promise<void> {
     await client.update(tag, { weight })
+  }
+
+  function handleError (error: unknown): void {
+    Analytics.handleError(error instanceof Error ? error : new Error(String(error)))
   }
 </script>
 
@@ -57,7 +63,13 @@
   {readonly}
   bind:items
   targetClass={_class}
-  on:open={(evt) => addRef(evt.detail)}
-  on:delete={(evt) => removeTag(evt.detail)}
-  on:change={(evt) => updateWeight(evt.detail.tag, evt.detail.weight)}
+  on:open={(evt) => {
+    void addRef(evt.detail).catch(handleError)
+  }}
+  on:delete={(evt) => {
+    void removeTag(evt.detail).catch(handleError)
+  }}
+  on:change={(evt) => {
+    void updateWeight(evt.detail.tag, evt.detail.weight).catch(handleError)
+  }}
 />

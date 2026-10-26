@@ -13,26 +13,30 @@
 // limitations under the License.
 -->
 <script lang="ts">
-  import { Class, Doc, Ref } from '@hcengineering/core'
-  import { createQuery, getClient } from '@hcengineering/presentation'
-  import tags, { TagElement, TagsEvents } from '@hcengineering/tags'
   import { Analytics } from '@hcengineering/analytics'
-
-  import TagsPopup from './TagsPopup.svelte'
+  import type { Class, Doc, Ref } from '@hcengineering/core'
+  import { createQuery, getClient } from '@hcengineering/presentation'
+  import tags, { TagsEvents } from '@hcengineering/tags'
+  import type { TagElement } from '@hcengineering/tags'
   import { getObjectId } from '@hcengineering/view-resources'
   import { addTagReference } from '../tag-reference'
+  import TagsPopup from './TagsPopup.svelte'
 
   export let object: Doc
   export let targetClass: Ref<Class<Doc>> = object._class
 
   let selected: Ref<TagElement>[] = []
   const query = createQuery()
-  $: query.query(tags.class.TagReference, { attachedTo: object._id }, (result) => {
-    selected = result.map(({ tag }) => tag)
-  })
+  $: query.query(
+    tags.class.TagReference,
+    { attachedTo: object._id, attachedToClass: object._class, collection: 'labels' },
+    (result) => {
+      selected = result.map(({ tag }) => tag)
+    }
+  )
   const client = getClient()
   const hierarchy = client.getHierarchy()
-  async function addRef(tag: TagElement): Promise<void> {
+  async function addRef (tag: TagElement): Promise<void> {
     if (!(await addTagReference(client, object, tag))) return
 
     if (!selected.includes(tag._id)) selected = [...selected, tag._id]
@@ -40,21 +44,30 @@
     Analytics.handleEvent(TagsEvents.TagCreated, { objectId: id, objectClass: object._class })
   }
 
-  async function removeTag(tag: TagElement): Promise<void> {
-    const tagRef = await client.findOne(tags.class.TagReference, { tag: tag._id, attachedTo: object._id })
+  async function removeTag (tag: TagElement): Promise<void> {
+    const tagRef = await client.findOne(tags.class.TagReference, {
+      tag: tag._id,
+      attachedTo: object._id,
+      attachedToClass: object._class,
+      collection: 'labels'
+    })
     if (tagRef) {
       await client.remove(tagRef)
-      selected.splice(selected.indexOf(tag._id), 1)
+      selected = selected.filter((id) => id !== tag._id)
       const id = await getObjectId(object, hierarchy)
       Analytics.handleEvent(TagsEvents.TagRemoved, { objectId: id, objectClass: object._class })
     }
   }
 
-  async function onUpdate(event: CustomEvent<{ action: string, tag: TagElement }>) {
+  function onUpdate (event: CustomEvent<{ action: string, tag: TagElement }>): void {
     const result = event.detail
     if (result === undefined) return
-    if (result.action === 'add') addRef(result.tag)
-    else if (result.action === 'remove') removeTag(result.tag)
+    const operation = result.action === 'add' ? addRef : result.action === 'remove' ? removeTag : undefined
+    if (operation !== undefined) {
+      void operation(result.tag).catch((error: unknown) => {
+        Analytics.handleError(error instanceof Error ? error : new Error(String(error)))
+      })
+    }
   }
 </script>
 
