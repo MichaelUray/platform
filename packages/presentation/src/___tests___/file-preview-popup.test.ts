@@ -20,9 +20,20 @@ interface PreviewFixture {
   actions: string[]
 }
 
+interface DrawingProps {
+  drawingAvailable: boolean
+  createDrawing: (data: unknown) => Promise<unknown>
+  drawings?: unknown[]
+}
+
+interface PreviewOptions {
+  omitTitle?: boolean
+  drawingProps?: DrawingProps
+}
+
 // Load the browser runtime together with compiled components, without replacing
 // their lifecycle, event forwarding, or ActionHandler's keyboard processing.
-function createPreview (): PreviewFixture {
+function createPreview (options: PreviewOptions = {}): PreviewFixture {
   const cache = new Map<string, { exports: Record<string, unknown> }>()
   const svelteRoot = dirname(require.resolve('svelte/package.json'))
   const components = resolve(__dirname, '../components')
@@ -80,21 +91,25 @@ function createPreview (): PreviewFixture {
     return module.exports
   }
 
-  const slotCode = compile('<slot name="beforeTitle"/><slot name="title"/><slot name="actions"/><slot/>', {
-    generate: 'dom'
-  }).js.code
-  const slotModule: { exports: { default?: ComponentConstructor } } = { exports: {} }
-  const slotRequire = (id: string): unknown => {
-    return id.endsWith('/disclose-version') ? {} : load(resolve(svelteRoot, 'src/runtime/internal/index.js'))
+  function createSlot (markup: string): ComponentConstructor {
+    const slotCode = compile(markup, { generate: 'dom' }).js.code
+    const slotModule: { exports: { default?: ComponentConstructor } } = { exports: {} }
+    const slotRequire = (id: string): unknown => {
+      return id.endsWith('/disclose-version') ? {} : load(resolve(svelteRoot, 'src/runtime/internal/index.js'))
+    }
+    // Execute the compiled slot with the same runtime as the components above.
+    // eslint-disable-next-line no-new-func, @typescript-eslint/no-implied-eval
+    new Function('require', 'module', 'exports', transpileModule(slotCode, { compilerOptions }).outputText)(
+      slotRequire,
+      slotModule,
+      slotModule.exports
+    )
+    if (slotModule.exports.default === undefined) throw new Error('Missing compiled slot component')
+    return slotModule.exports.default
   }
-  // Execute the compiled slot with the same runtime as the components above.
-  // eslint-disable-next-line no-new-func, @typescript-eslint/no-implied-eval
-  new Function('require', 'module', 'exports', transpileModule(slotCode, { compilerOptions }).outputText)(
-    slotRequire,
-    slotModule,
-    slotModule.exports
-  )
-  const slot = slotModule.exports.default
+
+  const slot = createSlot('<slot name="beforeTitle"/><slot name="title"/><slot name="actions"/><slot/>')
+  const modalWithoutTitle = createSlot('<slot name="beforeTitle"/><slot name="actions"/><slot/>')
   const { writable } = load(resolve(svelteRoot, 'src/runtime/store/index.js')) as {
     writable: (value: unknown) => unknown
   }
@@ -125,7 +140,7 @@ function createPreview (): PreviewFixture {
     ComponentExtensions: slot,
     Button: slot,
     get Modal () {
-      return load(resolve(ui, 'Modal.svelte')).default
+      return options.omitTitle === true ? modalWithoutTitle : load(resolve(ui, 'Modal.svelte')).default
     },
     get ButtonIcon () {
       return load(resolve(ui, 'ButtonIcon.svelte')).default
@@ -139,7 +154,13 @@ function createPreview (): PreviewFixture {
   const actionHandler = new Handler({ target: document.body })
   const popup = new Preview({
     target: document.body,
-    props: { name: 'image.png', contentType: 'image/png', metadata: undefined, file: undefined }
+    props: {
+      name: 'image.png',
+      contentType: 'image/png',
+      metadata: undefined,
+      file: undefined,
+      props: options.drawingProps
+    }
   })
   return { popup, actionHandler, modes, actions }
 }
@@ -147,14 +168,11 @@ function createPreview (): PreviewFixture {
 describe('file preview keyboard focus', () => {
   let preview: ReturnType<typeof createPreview>
 
-  beforeEach(() => {
-    preview = createPreview()
-  })
-
   afterEach(() => {
     preview?.popup.$destroy()
     preview?.actionHandler.$destroy()
     document.body.innerHTML = ''
+    jest.restoreAllMocks()
   })
 
   async function press (key: string): Promise<void> {
@@ -163,6 +181,9 @@ describe('file preview keyboard focus', () => {
   }
 
   it('focuses the existing title on open and handles both image arrows', async () => {
+    const focus = jest.spyOn(HTMLElement.prototype, 'focus')
+    preview = createPreview()
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true })
     expect(document.activeElement?.classList.contains('antiTitle')).toBe(true)
     expect(document.querySelector('.hulyModal-container')?.parentElement).toBe(document.body)
     await press('ArrowRight')
@@ -172,12 +193,16 @@ describe('file preview keyboard focus', () => {
   })
 
   it('restores browser navigation after maximizing and minimizing', async () => {
+    preview = createPreview()
     const sizes: boolean[] = []
     preview.popup.$on('fullsize', (event) => sizes.push(event.detail))
     const toggle = document.querySelectorAll('button')[1]
+    const focus = jest.spyOn(HTMLElement.prototype, 'focus')
     for (let i = 0; i < 2; i++) {
       toggle.focus()
+      focus.mockClear()
       toggle.click()
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true })
       await press('ArrowRight')
       await press('ArrowLeft')
       expect(document.activeElement?.classList.contains('antiTitle')).toBe(true)
@@ -187,14 +212,49 @@ describe('file preview keyboard focus', () => {
   })
 
   it('preserves input mode for focused buttons, including after arrow navigation', async () => {
+    preview = createPreview()
     await press('ArrowRight')
     const close = document.querySelector('button')
     close?.focus()
     await press('Enter')
     await press(' ')
     await press('ArrowRight')
+    await press('ArrowLeft')
     expect(preview.modes).toEqual(['browser', 'input'])
     expect(preview.actions).toEqual(['ArrowRight'])
     expect(document.activeElement).toBe(close)
+  })
+
+  it('initializes drawing support and handles both size changes without a title slot', async () => {
+    const drawing = { _id: 'drawing' }
+    const createDrawing = jest.fn<Promise<unknown>, [unknown]>().mockResolvedValue(drawing)
+    const drawingProps: DrawingProps = { drawingAvailable: true, createDrawing }
+    preview = createPreview({ omitTitle: true, drawingProps })
+    expect(document.querySelector('.antiTitle')).toBeNull()
+    expect(drawingProps.createDrawing).not.toBe(createDrawing)
+
+    const data = { content: 'drawing data' }
+    await expect(drawingProps.createDrawing(data)).resolves.toBe(drawing)
+    expect(createDrawing).toHaveBeenCalledWith(data)
+    expect(drawingProps.drawings).toEqual([drawing])
+
+    const sizes: boolean[] = []
+    preview.popup.$on('fullsize', (event) => sizes.push(event.detail))
+    const toggle = document.querySelectorAll('button')[1]
+    toggle.focus()
+    toggle.click()
+    toggle.click()
+    expect(sizes).toEqual([true, false])
+    expect(document.activeElement).toBe(toggle)
+  })
+
+  it('focuses a named heading outside the tab order', () => {
+    preview = createPreview()
+    const title = document.querySelector('[role="heading"]')
+    expect(document.activeElement).toBe(title)
+    expect(title?.getAttribute('aria-level')).toBe('1')
+    expect(title?.getAttribute('aria-label')).toBe('image.png')
+    expect(title?.textContent).toContain('image.png')
+    expect(title?.getAttribute('tabindex')).toBe('-1')
   })
 })

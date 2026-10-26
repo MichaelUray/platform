@@ -54,14 +54,14 @@
   export let showIcon = true
 
   let drawingLoading = false
-  let preview: HTMLDivElement
+  let preview: HTMLDivElement | undefined
   let createDrawing: (data: any) => Promise<any>
 
   const dispatch = createEventDispatcher()
 
   $: void loadDrawings(file)
 
-  async function loadDrawings(file: Ref<Blob> | undefined): Promise<void> {
+  async function loadDrawings (file: Ref<Blob> | undefined): Promise<void> {
     if (props.drawingAvailable === true) {
       if (props.loadDrawings !== undefined) {
         drawingLoading = true
@@ -80,7 +80,7 @@
   }
 
   onMount(() => {
-    preview.focus({ preventScroll: true })
+    preview?.focus({ preventScroll: true })
     if (props.drawingAvailable === true) {
       if (props.createDrawing !== undefined) {
         createDrawing = props.createDrawing
@@ -97,11 +97,11 @@
     }
   })
 
-  function toggleDrawingEdit(): void {
+  function toggleDrawingEdit (): void {
     props.drawingEditable = !(props.drawingEditable === true)
   }
 
-  function selectCurrentDrawing(ev: MouseEvent): void {
+  function selectCurrentDrawing (ev: MouseEvent): void {
     if (props.drawings === undefined || props.drawings.length === 0) {
       // no current means no history
       return
@@ -133,6 +133,12 @@
   }
 </script>
 
+<style>
+  .antiTitle:focus {
+    outline: none;
+  }
+</style>
+
 <ActionContext context={{ mode: 'browser' }} />
 <Modal
   type={'type-component'}
@@ -162,14 +168,21 @@
       on:click={() => {
         fullSize = !fullSize
         dispatch('fullsize', fullSize)
-        preview.focus({ preventScroll: true })
+        preview?.focus({ preventScroll: true })
       }}
     />
     <div class="hulyHeader-divider short no-print" />
   </svelte:fragment>
 
   <svelte:fragment slot="title">
-    <div class="antiTitle icon-wrapper" tabindex="-1" bind:this={preview}>
+    <div
+      class="antiTitle icon-wrapper"
+      role="heading"
+      aria-level="1"
+      aria-label={name}
+      tabindex="-1"
+      bind:this={preview}
+    >
       {#if showIcon}
         <div class="wrapped-icon">
           <FileTypeIcon {name} />
