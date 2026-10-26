@@ -14,6 +14,7 @@
 // limitations under the License.
 //
 
+import { Analytics } from '@hcengineering/analytics'
 import { type Attachment } from '@hcengineering/attachment'
 import {
   type BlobMetadata,
@@ -41,9 +42,7 @@ import view from '@hcengineering/view'
 
 import attachment from './plugin'
 import AttachmentPreviewPopup from './components/AttachmentPreviewPopup.svelte'
-import { Analytics } from '@hcengineering/analytics'
-import { getBoundedImageDimensions } from './image'
-import type { ImageDimensions } from './image'
+import { getBoundedImageDimensions, type ImageDimensions } from './image'
 
 const UPLOAD_RESTRICTED_EVENT = 'attachment.UploadRestricted'
 

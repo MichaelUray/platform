@@ -13,6 +13,7 @@
 // limitations under the License.
 // -->
 <script lang="ts">
+  import { Analytics } from '@hcengineering/analytics'
   import {
     getJsonOrEmpty,
     getClient,
@@ -27,7 +28,6 @@
   import { getImageDimensions } from '../utils'
   import LinkPreviewIcon from './LinkPreviewIcon.svelte'
   import LinkPreviewImage from './LinkPreviewImage.svelte'
-  import { Analytics } from '@hcengineering/analytics'
 
   export let attachment: WithLookup<Attachment>
   export let isOwn = false
@@ -39,7 +39,7 @@
 
   const client = getClient()
 
-  async function onDelete(): Promise<void> {
+  async function onDelete (): Promise<void> {
     await client.removeCollection(
       attachment._class,
       attachment.space,
@@ -125,14 +125,15 @@
   .link-preview {
     display: flex;
     flex-direction: column;
+    box-sizing: border-box;
     gap: 0.25rem;
     line-height: 150%;
     padding: 0.75rem;
     background-color: var(--theme-link-preview-bg-color);
     border-radius: 0.75rem;
     scroll-snap-align: start;
-    max-width: 26rem;
-    min-width: 16rem;
+    max-width: min(26rem, 100%);
+    min-width: min(16rem, 100%);
 
     &:hover {
       .link-preview__delete-button {

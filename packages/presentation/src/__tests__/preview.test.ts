@@ -35,7 +35,7 @@ describe('getBlobRef', () => {
     [300, 400],
     [400, 400],
     [400, 200]
-  ])('requests a full-resolution crop at every DPR for a %ix%i preview', async (width, height) => {
+  ])('requests the preview box dimensions at every DPR for a %ix%i preview', async (width, height) => {
     const result = await getBlobRef(blob, 'screenshot.png', width, height)
 
     expect(result.src).toBe('https://front.test/original.png')

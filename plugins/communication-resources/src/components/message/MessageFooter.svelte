@@ -51,18 +51,18 @@
     threadCardsQuery.unsubscribe()
   }
 
-  function canReply(): boolean {
+  function canReply (): boolean {
     return message.type !== MessageType.Activity && message.extra?.threadRoot !== true
   }
 
-  async function handleReaction(event: CustomEvent<Emoji>): Promise<void> {
+  async function handleReaction (event: CustomEvent<Emoji>): Promise<void> {
     event.preventDefault()
     event.stopPropagation()
     const emoji = event.detail
     await toggleReaction(message, emoji)
   }
 
-  async function handleReply(event: CustomEvent<Ref<Card> | undefined>): Promise<void> {
+  async function handleReply (event: CustomEvent<Ref<Card> | undefined>): Promise<void> {
     if (!canReply()) return
     const threadID = event.detail
     if (threadID === undefined) return
@@ -76,7 +76,7 @@
     await r(_id, c)
   }
 
-  async function removeLinkPreview(id: AttachmentID): Promise<void> {
+  async function removeLinkPreview (id: AttachmentID): Promise<void> {
     await communicationClient.attachmentPatch(message.cardId, message.id, {
       remove: [id]
     })
@@ -190,7 +190,7 @@
   .message__links {
     display: grid;
     grid-gap: 0.75rem;
-    grid-template-columns: repeat(auto-fit, 25rem);
+    grid-template-columns: repeat(auto-fit, minmax(0, min(25rem, 100%)));
     min-height: 2.5rem;
     width: 100%;
     overflow: hidden;
