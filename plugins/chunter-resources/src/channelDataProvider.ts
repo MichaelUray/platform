@@ -335,12 +335,14 @@ export class ChannelDataProvider implements IChannelDataProvider {
     const client = getClient()
     const skipIds = this.getChunkSkipIds(loadAfter)
 
-    let messages: ActivityMessage[] = await client.findAll(
+    const messages: ActivityMessage[] = await client.findAll(
       this.msgClass,
       {
         attachedTo: this.chatId,
         space: this.space,
         ...(this.collection != null ? { collection: this.collection } : {}),
+        // Exclude loaded boundary documents before the server applies its page limit.
+        ...(skipIds.length > 0 ? { _id: { $nin: skipIds } } : {}),
         createdOn: equal
           ? isBackward
             ? { $lte: loadAfter }
@@ -358,8 +360,6 @@ export class ChannelDataProvider implements IChannelDataProvider {
         lookup: this.getLookup()
       }
     )
-
-    messages = messages.filter(({ _id }) => !skipIds.includes(_id))
 
     if (messages.length === 0) {
       return
