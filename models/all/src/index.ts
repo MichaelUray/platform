@@ -71,6 +71,7 @@ import { serverTemplatesId, createModel as serverTemplatesModel } from '@hcengin
 import { serverTrackerId, createModel as serverTrackerModel } from '@hcengineering/model-server-tracker'
 import { serverViewId, createModel as serverViewModel } from '@hcengineering/model-server-view'
 import { serverWorkflowRulesId, createModel as serverWorkflowRulesModel } from '@hcengineering/model-server-workflow-rules'
+import { workflowRulesId, createModel as workflowRulesModel } from '@hcengineering/model-workflow-rules'
 import setting, { settingId, createModel as settingModel } from '@hcengineering/model-setting'
 import { supportId, createModel as supportModel } from '@hcengineering/model-support'
 import { tagsId, createModel as tagsModel } from '@hcengineering/model-tags'
@@ -318,6 +319,18 @@ export default function buildModel (): Builder {
         enabled: true,
         beta: false,
         icon: tracker.icon.TrackerApplication,
+        classFilter: defaultFilter
+      }
+    ],
+    [
+      workflowRulesModel,
+      workflowRulesId,
+      {
+        label: 'Workflow Rules' as any,
+        description: 'Cross-project workflow rules' as any,
+        enabled: true,
+        beta: true,
+        icon: undefined as any,
         classFilter: defaultFilter
       }
     ],
