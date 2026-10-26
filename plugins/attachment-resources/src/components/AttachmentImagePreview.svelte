@@ -32,7 +32,7 @@
 
   $: dimensions = getDimensions(value, size)
 
-  function getDimensions (value: Attachment | BlobType, size: AttachmentImageSize): ImageDimensions {
+  function getDimensions(value: Attachment | BlobType, size: AttachmentImageSize): ImageDimensions {
     const byDefault = { width: 300, height: 300, fit: 'contain' } as const
     if (size === 'auto' || size == null) return byDefault
 
@@ -51,15 +51,15 @@
   let loading = false
   let error = false
 
-  function handleLoadStart (): void {
+  function handleLoadStart(): void {
     loading = true
   }
 
-  function handleLoad (): void {
+  function handleLoad(): void {
     loading = false
   }
 
-  function handleError (): void {
+  function handleError(): void {
     loading = false
     error = true
   }
