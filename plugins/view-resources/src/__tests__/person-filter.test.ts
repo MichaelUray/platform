@@ -16,8 +16,8 @@ jest.mock('@hcengineering/contact', () => ({
   getPersonRefsBySocialIds: jest.fn()
 }))
 
-const ownerUuid = 'aBcDeFaa-1111-4111-8111-111111111111' as AccountUuid
-const userUuid = 'bCdEfAbb-2222-4222-8222-222222222222' as AccountUuid
+const ownerUuid = 'abcdefaa-1111-4111-8111-111111111111' as AccountUuid
+const userUuid = 'bcdefabb-2222-4222-8222-222222222222' as AccountUuid
 const ownerRef = 'owner' as Ref<Person>
 const userRef = 'user' as Ref<Person>
 const accountType = { _class: core.class.TypeAccountUuid } as unknown as AnyAttribute['type']
@@ -62,11 +62,15 @@ describe('getFilterPersonRefs', () => {
   })
 
   it('resolves every stored value in a group', async () => {
-    const otherCase = ownerUuid.toUpperCase() as AccountUuid
-    findAll.mockResolvedValue([{ _id: ownerRef, personUuid: ownerUuid.toLowerCase() }])
+    findAll.mockResolvedValue([
+      { _id: ownerRef, personUuid: ownerUuid },
+      { _id: userRef, personUuid: userUuid }
+    ])
+    const selected: PersonFilterValue[] = [['Members', [ownerUuid, userUuid, ownerUuid]]]
 
-    expect(await getFilterPersonRefs(client, [[otherCase, [ownerUuid, otherCase]]], membersType)).toEqual([ownerRef])
-    expect(findAll.mock.calls[0][1]).toEqual({ personUuid: { $in: [ownerUuid, otherCase] } })
+    expect(await getFilterPersonRefs(client, selected, membersType)).toEqual([ownerRef, userRef])
+    expect(findAll.mock.calls[0][1]).toEqual({ personUuid: { $in: [ownerUuid, userUuid, ownerUuid] } })
+    expect(resolveSocialIds).not.toHaveBeenCalled()
   })
 
   it('preserves flat social identity filters', async () => {
@@ -100,19 +104,33 @@ describe('getFilterPersonRefs', () => {
     expect(findAll).not.toHaveBeenCalled()
   })
 
-  it('preserves selected account order despite database order and UUID casing', async () => {
+  it('preserves selected account order despite database order', async () => {
     findAll.mockResolvedValue([
-      { _id: userRef, personUuid: userUuid.toLowerCase() },
-      { _id: ownerRef, personUuid: ownerUuid.toLowerCase() }
+      { _id: userRef, personUuid: userUuid },
+      { _id: ownerRef, personUuid: ownerUuid }
     ])
 
-    expect(await getFilterPersonRefs(client, [ownerUuid.toUpperCase(), userUuid, ownerUuid], accountType)).toEqual([
+    expect(await getFilterPersonRefs(client, [ownerUuid, userUuid, ownerUuid], accountType)).toEqual([
       ownerRef,
       userRef
     ])
     expect(findAll).toHaveBeenCalledWith(
       contact.class.Person,
-      { personUuid: { $in: [ownerUuid.toUpperCase(), userUuid, ownerUuid] } },
+      { personUuid: { $in: [ownerUuid, userUuid, ownerUuid] } },
+      { projection: { _id: 1, personUuid: 1 } }
+    )
+  })
+
+  it('case-normalizes returned rows in a synthetic lookup response', async () => {
+    // This row would not match the exact-text query. Isolate post-query mapping only;
+    // this synthetic response does not test case-insensitive retrieval from storage.
+    findAll.mockResolvedValue([{ _id: ownerRef, personUuid: ownerUuid }])
+    const selected: PersonFilterValue[] = [ownerUuid.toUpperCase() as AccountUuid]
+
+    expect(await getFilterPersonRefs(client, selected, accountType)).toEqual([ownerRef])
+    expect(findAll).toHaveBeenCalledWith(
+      contact.class.Person,
+      { personUuid: { $in: selected } },
       { projection: { _id: 1, personUuid: 1 } }
     )
   })

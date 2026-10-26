@@ -34,6 +34,7 @@ export async function getFilterPersonRefs (
 
   const valueType = type._class === core.class.ArrOf ? (type as ArrOf<Doc>).of : type
   if (valueType._class === core.class.TypeAccountUuid) {
+    // Stored personUuid is text: query IDs unchanged; normalization below only matches returned rows.
     const persons = await client.findAll(
       contact.class.Person,
       { personUuid: { $in: ids as AccountUuid[] } },
