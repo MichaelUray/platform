@@ -1,0 +1,57 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+    branches: [develop, staging, staging-new, main]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    # Skip drafts and PRs from forks (secrets are not available there)
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review this pull request. First read AGENTS.md in the repo root and follow
+            the project conventions described there (TypeScript/Svelte 4 monorepo, Rush).
+
+            Focus on:
+            - Bugs, logic errors, race conditions, unhandled errors
+            - Security issues (auth, injection, secrets, unsafe input handling)
+            - Breaking changes to models/API and missing migrations
+            - Duplicated resource definitions (AnyComponent / IntlString / Ref declarations
+              must be defined only once)
+            - Missing or weak tests for changed behavior
+            - Violations of the code style in AGENTS.md
+
+            Do NOT comment on pure formatting or lint issues (CI handles them), and avoid
+            nitpicks. Prefer a few high-signal comments over many minor ones.
+
+            Use inline comments for specific lines and one short top-level summary comment
+            via `gh pr comment`. Write in English.
+          claude_args: |
+            --max-turns 15
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
