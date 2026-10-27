@@ -24,8 +24,8 @@ type ComponentConstructor = new (options: { target: HTMLElement, props?: Record<
 
 interface PreviewFixture {
   popup: MountedComponent
-  actionHandler: MountedComponent
-  modes: string[]
+  actionHandler: Pick<MountedComponent, '$destroy'>
+  modes: unknown[]
   actions: string[]
   pendingActions: PendingAction[]
   tick: () => Promise<void>
@@ -50,6 +50,15 @@ interface PendingAction {
   completed: Promise<void>
 }
 
+interface KeyAction {
+  action: string
+  keyBinding: string[]
+}
+
+interface ContextStoreValue {
+  getLastContext: () => { mode: unknown } | undefined
+}
+
 interface DrawingProps {
   drawingAvailable: boolean
   createDrawing: (data: unknown) => Promise<unknown>
@@ -62,6 +71,7 @@ interface PreviewOptions {
   drawingProps?: DrawingProps
   name?: string
   showIcon?: boolean
+  fullSize?: boolean
   file?: string
   storage?: 'front' | 'datalake'
 }
@@ -75,11 +85,17 @@ function createDeferred<T> (): Deferred<T> {
   return { promise, resolve: resolvePromise }
 }
 
+// Resolve sources of presentation's own dependencies through its node_modules links.
+function dependencySource (name: string, path: string): string {
+  return resolve(__dirname, '../../node_modules/@hcengineering', name, path)
+}
+
 // Load the browser runtime together with compiled components, without replacing
-// their lifecycle, event forwarding, or ActionHandler's keyboard processing.
+// their lifecycle or event forwarding.
 // This is a synthetic focus/action-dispatch fixture: actions and selection are
 // invented, most cases supply no file, and the drawing object tests only the callback
 // wrapper. Modal, ButtonIcon, ButtonBase and Label are real in the normal fixture.
+// Keyboard actions go through a stand-in for view-resources' ActionHandler (see below).
 // General Button, DownloadFileButton, FileTypeIcon, Header, Scroller, content and
 // extensions are slot replacements; registerFocus is stubbed. The missing-title
 // case also replaces Modal to omit its title slot.
@@ -88,17 +104,17 @@ function createDeferred<T> (): Deferred<T> {
 // preview-type lookup, resize observation and upload helpers are stubs. A synthetic
 // file ID exercises URL forwarding/download attributes, without fetching a blob.
 // FilePreview's SCSS is removed before compilation; no fixture attaches CSS.
-// It does not cover image rendering/switching, actual selection/navigation,
-// PopupInstance resizing, CSS, native Enter/Space button activation, persistence
-// or assistive-technology announcements. Translation uses the English catalog.
+// It does not cover image rendering/switching, actual selection/navigation, the
+// popup host (showPopup/PopupInstance, emulated by destroying the popup on close),
+// the ProseMirror editor itself, CSS, native Enter/Space button activation,
+// persistence or assistive-technology announcements. Translation uses the English catalog.
 function createPreview (options: PreviewOptions = {}): PreviewFixture {
   const cache = new Map<string, { exports: Record<string, unknown> }>()
   const svelteRoot = dirname(require.resolve('svelte/package.json'))
   const components = resolve(__dirname, '../components')
-  const ui = resolve(components, '../../../ui/src/components')
-  const handler = resolve(components, '../../../../plugins/view-resources/src/components/ActionHandler.svelte')
-  const storageClients = resolve(components, '../../../../foundations/core/packages/storage-client/src/client')
-  const modes: string[] = []
+  const ui = dependencySource('ui', 'src/components')
+  const storageClients = dependencySource('storage-client', 'src/client')
+  const modes: unknown[] = []
   const actions: string[] = []
   const pendingActions: PendingAction[] = []
   const previewType = createDeferred<undefined>()
@@ -112,9 +128,6 @@ function createPreview (options: PreviewOptions = {}): PreviewFixture {
     '../index',
     '../plugin',
     '..',
-    '../actions',
-    '../selection',
-    '../utils',
     '../focus',
     '../tooltips',
     '../filetypes',
@@ -194,18 +207,18 @@ function createPreview (options: PreviewOptions = {}): PreviewFixture {
 
   const slot = createSlot('<slot name="beforeTitle"/><slot name="title"/><slot name="actions"/><slot/>')
   const modalWithoutTitle = createSlot('<slot name="beforeTitle"/><slot name="actions"/><slot/>')
-  const { writable } = load(resolve(svelteRoot, 'src/runtime/store/index.js')) as {
+  const { writable, get } = load(resolve(svelteRoot, 'src/runtime/store/index.js')) as {
     writable: (value: unknown) => unknown
+    get: (store: unknown) => unknown
   }
   const { tick } = load(resolve(svelteRoot, 'src/runtime/index.js')) as { tick: () => Promise<void> }
   const mocks = {
     default: {
-      class: { TxRemoveDoc: 'remove' },
       string: { DocumentPreview: 'DocumentPreview' },
       extension: {},
       metadata: { WorkspaceUuid: 'workspace', FileStorage: 'storage' }
     },
-    Analytics: { handleError: jest.fn(), handleEvent: jest.fn() },
+    Analytics: { handleError: jest.fn() },
     SortingOrder: { Descending: -1 },
     generateId: () => 'preview',
     concatLink,
@@ -222,36 +235,6 @@ function createPreview (options: PreviewOptions = {}): PreviewFixture {
     },
     tooltip: () => ({}),
     registerFocus: () => ({ idx: -1 }),
-    addTxListener: () => {},
-    getClient: () => ({}),
-    reduceCalls: (fn: unknown) => fn,
-    getSelection: () => [],
-    getResource: async (action: string): Promise<() => void> => {
-      const resource = createDeferred<() => void>()
-      const completed = createDeferred<undefined>()
-      pendingActions.push({
-        id: action,
-        resolveResource: () => {
-          resource.resolve(() => {
-            actions.push(action)
-            completed.resolve(undefined)
-          })
-        },
-        completed: completed.promise
-      })
-      return await resource.promise
-    },
-    getContextActionsSync: (_client: unknown, _docs: unknown, ctx: { mode: string }) => {
-      modes.push(ctx.mode)
-      return ctx.mode === 'browser'
-        ? ['ArrowLeft', 'ArrowRight', 'Enter', ' '].map((key) => ({ _id: key, action: key, keyBinding: [key] }))
-        : []
-    },
-    getObjectPreview: () => undefined,
-    focusStore: writable({ focus: undefined }),
-    selectionStore: writable({ docs: [] }),
-    previewDocument: writable(undefined),
-    restrictionStore: writable({ disableActions: false }),
     themeStore: writable({ language: 'en' }),
     deviceOptionsStore: writable({ docHeight: 1000, fontSize: 16 }),
     previewTypes: writable([]),
@@ -267,9 +250,6 @@ function createPreview (options: PreviewOptions = {}): PreviewFixture {
     },
     get ButtonIcon () {
       return load(resolve(ui, 'ButtonIcon.svelte')).default
-    },
-    get contextStore () {
-      return load(resolve(components, '../context.ts')).contextStore
     }
   }
   if (options.storage !== undefined) {
@@ -277,14 +257,67 @@ function createPreview (options: PreviewOptions = {}): PreviewFixture {
     const Storage = load(resolve(storageClients, `${options.storage}.ts`))[storageName] as StorageConstructor
     storage = new Storage('https://files.example')
   }
-  const Handler = load(handler).default as ComponentConstructor
+  function getContextActions (mode: unknown): KeyAction[] {
+    modes.push(mode)
+    return mode === 'browser'
+      ? ['ArrowLeft', 'ArrowRight', 'Enter', ' '].map((key) => ({ action: key, keyBinding: [key] }))
+      : []
+  }
+
+  async function getActionResource (action: string): Promise<() => void> {
+    const resource = createDeferred<() => void>()
+    const completed = createDeferred<undefined>()
+    pendingActions.push({
+      id: action,
+      resolveResource: () => {
+        resource.resolve(() => {
+          actions.push(action)
+          completed.resolve(undefined)
+        })
+      },
+      completed: completed.promise
+    })
+    return await resource.promise
+  }
+
+  // Stand-in for view-resources' ActionHandler, which presentation cannot depend on. It applies the same
+  // rule: a focused input, button or textarea selects input-mode actions, any other target uses the mode
+  // of the last ActionContext. Actions are cached per target and their resources resolve asynchronously.
+  function createActionHandler (): Pick<MountedComponent, '$destroy'> {
+    const { contextStore } = load(resolve(components, '../context.ts')) as { contextStore: unknown }
+    let currentElement: EventTarget | null = null
+    let currentActions: KeyAction[] = []
+    function handleKeys (evt: KeyboardEvent): void {
+      const context = (get(contextStore) as ContextStoreValue).getLastContext()
+      if (context?.mode === 'none') return
+      if (currentElement !== evt.target) {
+        currentElement = evt.target
+        const tag = evt.target instanceof HTMLElement ? evt.target.tagName.toLowerCase() : ''
+        currentActions = getContextActions(['input', 'button', 'textarea'].includes(tag) ? 'input' : context?.mode)
+      }
+      const action = currentActions.find((it) => it.keyBinding.includes(evt.key))
+      if (action === undefined) return
+      evt.preventDefault()
+      void getActionResource(action.action).then((run) => {
+        run()
+      })
+    }
+    window.addEventListener('keydown', handleKeys)
+    return {
+      $destroy: () => {
+        window.removeEventListener('keydown', handleKeys)
+      }
+    }
+  }
+
   const Preview = load(resolve(components, 'FilePreviewPopup.svelte')).default as ComponentConstructor
-  const actionHandler = new Handler({ target: document.body })
+  const actionHandler = createActionHandler()
   const popup = new Preview({
     target: document.body,
     props: {
       name: Object.prototype.hasOwnProperty.call(options, 'name') ? options.name : 'image.png',
       showIcon: options.showIcon ?? true,
+      fullSize: options.fullSize ?? false,
       contentType: 'image/png',
       metadata: undefined,
       file: options.file,
@@ -448,20 +481,47 @@ describe('file preview keyboard focus', () => {
     expect(drawingProps.drawings).toBeUndefined()
   })
 
-  it('returns focus to the editor that opened the preview when it closes', () => {
-    const editor = document.body.appendChild(document.createElement('textarea'))
-    editor.focus()
-    preview = createPreview()
-    expect(document.activeElement?.classList.contains('antiTitle')).toBe(true)
+  it.each(['Escape', 'the close button'])(
+    'returns focus to the text editor whose image opened the preview after closing with %s',
+    async (closeWith) => {
+      // Shaped like the text editor: a contenteditable host whose image opens the preview on double-click
+      // with the editor's popup props. The popup host is emulated by destroying the popup on close.
+      const editor = document.body.appendChild(document.createElement('div'))
+      editor.setAttribute('contenteditable', 'true')
+      const image = editor.appendChild(document.createElement('img'))
+      image.addEventListener('dblclick', () => {
+        preview = createPreview({ name: '', showIcon: false, fullSize: true })
+        preview.popup.$on('close', () => {
+          preview.popup.$destroy()
+        })
+      })
+      editor.focus()
+      image.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+      expect(document.activeElement?.classList.contains('antiTitle')).toBe(true)
+      await pressAction('ArrowRight')
+      await pressAction('ArrowLeft')
 
-    const close = document.querySelector('.hulyModal-container button')
-    if (!(close instanceof HTMLButtonElement)) throw new Error('Missing close button')
-    close.focus()
-    const restore = jest.spyOn(editor, 'focus')
-    preview.popup.$destroy()
-    expect(restore).toHaveBeenCalledWith({ preventScroll: true })
-    expect(document.activeElement).toBe(editor)
-  })
+      const restore = jest.spyOn(editor, 'focus')
+      if (closeWith === 'Escape') {
+        press('Escape')
+      } else {
+        const close = document.querySelector('.hulyModal-container button')
+        if (!(close instanceof HTMLButtonElement)) throw new Error('Missing close button')
+        close.focus()
+        close.click()
+      }
+      expect(restore).toHaveBeenCalledWith({ preventScroll: true })
+      expect(document.activeElement).toBe(editor)
+      expect(document.querySelector('.antiTitle')).toBeNull()
+
+      const typed: string[] = []
+      editor.addEventListener('keydown', (event) => typed.push(event.key))
+      press('a')
+      expect(typed).toEqual(['a'])
+      expect(preview.pendingActions).toHaveLength(0)
+      expect(preview.actions).toEqual(['ArrowRight', 'ArrowLeft'])
+    }
+  )
 
   it('does not restore focus to a removed element or away from a newer focus target', () => {
     const removed = document.body.appendChild(document.createElement('textarea'))
