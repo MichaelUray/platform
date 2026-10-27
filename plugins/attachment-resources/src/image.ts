@@ -51,3 +51,12 @@ export function getBoundedImageDimensions (
 
   return { width: Math.round(width), height: Math.round(height), fit }
 }
+
+/**
+ * Only cover-fitted images are cropped by the browser. Anchor those crops at the
+ * top so the start of a tall screenshot stays visible; uncropped (contain)
+ * images keep the default centred position.
+ */
+export function shouldAnchorImageTop (fit: string | undefined): boolean {
+  return fit === 'cover'
+}

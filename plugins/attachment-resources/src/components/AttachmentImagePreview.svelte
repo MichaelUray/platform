@@ -18,7 +18,7 @@
   import { Image } from '@hcengineering/presentation'
 
   import BrokenImage from './icons/BrokenImage.svelte'
-  import type { ImageDimensions } from '../image'
+  import { shouldAnchorImageTop, type ImageDimensions } from '../image'
   import { AttachmentImageSize } from '../types'
   import { getImageDimensions } from '../utils'
 
@@ -68,6 +68,7 @@
 <div
   class="container"
   class:loading
+  class:top-anchored={shouldAnchorImageTop(dimensions.fit)}
   style:width={`${dimensions.width}px`}
   style:aspect-ratio={`${dimensions.width} / ${dimensions.height}`}
 >
@@ -104,7 +105,7 @@
     border-radius: 0.75rem;
     overflow: hidden;
 
-    :global(img) {
+    &.top-anchored :global(img) {
       object-position: top;
     }
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: EPL-2.0
 
-import { getBoundedImageDimensions } from '../image'
+import { getBoundedImageDimensions, shouldAnchorImageTop } from '../image'
 
 describe('getBoundedImageDimensions', () => {
   const bounds = { minWidth: 64, maxWidth: 400, minHeight: 64, maxHeight: 400 }
@@ -141,5 +141,36 @@ describe('getBoundedImageDimensions', () => {
       height: 240,
       fit: 'contain'
     })
+  })
+})
+
+describe('shouldAnchorImageTop', () => {
+  const bounds = { minWidth: 64, maxWidth: 400, minHeight: 64, maxHeight: 400 }
+
+  it.each([
+    { width: 300, height: 4000 },
+    { width: 400, height: 801 },
+    { width: 40, height: 3600 }
+  ])('anchors cropped tall images at the top: %j', (size) => {
+    const { fit } = getBoundedImageDimensions(size, bounds)
+
+    expect(fit).toBe('cover')
+    expect(shouldAnchorImageTop(fit)).toBe(true)
+  })
+
+  it.each([
+    { width: 800, height: 400 },
+    { width: 400, height: 800 },
+    { width: 300, height: 800 },
+    { width: 300, height: 300 }
+  ])('keeps uncropped images centred: %j', (size) => {
+    const { fit } = getBoundedImageDimensions(size, bounds)
+
+    expect(fit).toBe('contain')
+    expect(shouldAnchorImageTop(fit)).toBe(false)
+  })
+
+  it.each(['contain', 'fill', 'none', 'scale-down', '', undefined])('does not anchor uncropped fits: %p', (fit) => {
+    expect(shouldAnchorImageTop(fit)).toBe(false)
   })
 })

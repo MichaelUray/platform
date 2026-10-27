@@ -16,6 +16,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
 
+  import { shouldAnchorImageTop } from '../image'
+
   export let url: string | undefined = undefined
   export let src: string
   export let width: number
@@ -55,6 +57,7 @@
         {height}
         style:aspect-ratio={height !== undefined ? `${width} / ${height}` : undefined}
         style:object-fit={fit}
+        style:object-position={shouldAnchorImageTop(fit) ? 'top' : undefined}
         on:error={() => {
           refreshPreviewSrc()
         }}
@@ -70,6 +73,7 @@
       {height}
       style:aspect-ratio={height !== undefined ? `${width} / ${height}` : undefined}
       style:object-fit={fit}
+      style:object-position={shouldAnchorImageTop(fit) ? 'top' : undefined}
       on:error={() => {
         refreshPreviewSrc()
       }}
@@ -84,6 +88,5 @@
     max-width: min(24.5rem, 100%);
     max-height: 15rem;
     height: auto;
-    object-position: top;
   }
 </style>
