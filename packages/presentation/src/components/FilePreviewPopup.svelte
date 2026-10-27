@@ -57,6 +57,8 @@
   let drawingLoading = false
   let drawingRequest = 0
   let preview: HTMLDivElement | undefined
+  let previousFocus: HTMLElement | undefined
+  let focusScope: Element | undefined
   let createDrawing: (data: any) => Promise<any>
 
   const dispatch = createEventDispatcher()
@@ -87,11 +89,30 @@
     }
   }
 
+  // Remember who had focus (e.g. a text editor that opened the preview) before the title takes it.
+  function rememberFocus(): void {
+    const active = document.activeElement
+    if (preview === undefined || !(active instanceof HTMLElement) || active === document.body) return
+    focusScope = preview.closest('.hulyModal-container') ?? preview
+    if (!focusScope.contains(active)) previousFocus = active
+  }
+
+  // Give focus back only if it is still in the popup or was lost with it, never steal it from elsewhere.
+  function restoreFocus(): void {
+    if (previousFocus === undefined || !previousFocus.isConnected) return
+    const active = document.activeElement
+    if (active === null || active === document.body || focusScope?.contains(active) === true) {
+      previousFocus.focus({ preventScroll: true })
+    }
+  }
+
   onDestroy(() => {
     drawingRequest++
+    restoreFocus()
   })
 
   onMount(() => {
+    rememberFocus()
     preview?.focus({ preventScroll: true })
     if (props.drawingAvailable === true) {
       if (props.createDrawing !== undefined) {

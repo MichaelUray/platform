@@ -448,6 +448,42 @@ describe('file preview keyboard focus', () => {
     expect(drawingProps.drawings).toBeUndefined()
   })
 
+  it('returns focus to the editor that opened the preview when it closes', () => {
+    const editor = document.body.appendChild(document.createElement('textarea'))
+    editor.focus()
+    preview = createPreview()
+    expect(document.activeElement?.classList.contains('antiTitle')).toBe(true)
+
+    const close = document.querySelector('.hulyModal-container button')
+    if (!(close instanceof HTMLButtonElement)) throw new Error('Missing close button')
+    close.focus()
+    const restore = jest.spyOn(editor, 'focus')
+    preview.popup.$destroy()
+    expect(restore).toHaveBeenCalledWith({ preventScroll: true })
+    expect(document.activeElement).toBe(editor)
+  })
+
+  it('does not restore focus to a removed element or away from a newer focus target', () => {
+    const removed = document.body.appendChild(document.createElement('textarea'))
+    removed.focus()
+    preview = createPreview()
+    removed.remove()
+    const restoreRemoved = jest.spyOn(removed, 'focus')
+    preview.popup.$destroy()
+    expect(restoreRemoved).not.toHaveBeenCalled()
+
+    const editor = document.body.appendChild(document.createElement('textarea'))
+    editor.focus()
+    const second = createPreview()
+    const other = document.body.appendChild(document.createElement('input'))
+    other.focus()
+    const restoreEditor = jest.spyOn(editor, 'focus')
+    second.popup.$destroy()
+    second.actionHandler.$destroy()
+    expect(restoreEditor).not.toHaveBeenCalled()
+    expect(document.activeElement).toBe(other)
+  })
+
   it('focuses a named heading outside the tab order', () => {
     preview = createPreview()
     const title = document.querySelector('[role="heading"]')
