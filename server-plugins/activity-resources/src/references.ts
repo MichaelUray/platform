@@ -452,6 +452,15 @@ async function getRemoveMentionTxes (
   return res
 }
 
+function isSameMentionContent (content: string, message: string): boolean {
+  try {
+    return areEqualJson(JSON.parse(content), JSON.parse(message))
+  } catch {
+    // Empty or legacy non-JSON content: treat it as changed so the excerpt is refreshed.
+    return false
+  }
+}
+
 async function getReferencesTxes (
   ctx: MeasureContext,
   control: TriggerControl,
@@ -488,7 +497,11 @@ async function getReferencesTxes (
 
   const notificationControl = await getNotificationProviderControl(ctx, control)
 
+  // A user can have several mention records for one document (e.g. from concurrent saves).
+  // Only the first one is matched against the reference; the others are redundant records.
+  const matchedMentions = new Set<string>()
   for (const mention of mentions) {
+    const mentionKey = `${mention.user}:${mention.attachedTo}`
     const refIndex = references.findIndex(
       (r) => mention.user === r.attachedTo && mention.attachedTo === r.attachedDocId
     )
@@ -496,10 +509,14 @@ async function getReferencesTxes (
     const ref = references[refIndex]
 
     if (refIndex !== -1) {
-      if (!areEqualJson(JSON.parse(mention.content), JSON.parse(ref.message))) {
+      if (!isSameMentionContent(mention.content, ref.message)) {
         txes.push(getUpdateMentionInfoTx(control, ref, space, mention))
       }
       references.splice(refIndex, 1)
+      matchedMentions.add(mentionKey)
+    } else if (matchedMentions.has(mentionKey)) {
+      // The mention still exists, so keep its notifications and drop only the duplicate record.
+      txes.push(control.txFactory.createTxRemoveDoc(mention._class, mention.space, mention._id))
     } else {
       const removeTxes = await getRemoveMentionTxes(control, mention, originTx)
       txes.push(...removeTxes)

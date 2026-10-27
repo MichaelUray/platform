@@ -55,6 +55,12 @@ function mentionMarkup (text = ' first line', user = 'user'): Markup {
   })
 }
 
+interface FindQuery {
+  _id?: string
+  user?: string
+  attachedTo?: string
+}
+
 function createWorkspace (): {
   save: (markup: Markup) => Promise<TxCUD<Doc>[]>
   mentions: Map<Ref<UserMentionInfo>, UserMentionInfo>
@@ -86,13 +92,15 @@ function createWorkspace (): {
         clazz === notification.class.NotificationType ? [{ _id: notification.ids.MentionNotificationType }] : []
     },
     storageAdapter: { read: jest.fn(async () => [Buffer.from(markup)]) },
-    findAll: jest.fn(async (_ctx: MeasureContext, clazz: string, query: { _id?: string, user?: string }) => {
+    findAll: jest.fn(async (_ctx: MeasureContext, clazz: string, query: FindQuery) => {
       if (clazz === core.class.Doc) return [document]
       if (clazz === core.class.Space) return [{ members: ['receiver'], private: false }]
       if (clazz === contact.mixin.Employee) return [{ personUuid: 'receiver' as AccountUuid }]
       if (clazz === activity.class.UserMentionInfo) {
         return Array.from(mentions.values()).filter(
-          (mention) => query.user === undefined || mention.user === query.user
+          (mention) =>
+            (query.user === undefined || mention.user === query.user) &&
+            (query.attachedTo === undefined || mention.attachedTo === query.attachedTo)
         )
       }
       return []
@@ -128,6 +136,10 @@ function createWorkspace (): {
   }
 }
 
+function expectNotifications (count: number): void {
+  expect(getCommonNotificationTxes).toHaveBeenCalledTimes(count)
+}
+
 describe('collaborative document mention notifications', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -136,11 +148,11 @@ describe('collaborative document mention notifications', () => {
   it('notifies once for a new mention and skips an unchanged save', async () => {
     const workspace = createWorkspace()
     await workspace.save(mentionMarkup())
-    expect(getCommonNotificationTxes).toHaveBeenCalledTimes(1)
+    expectNotifications(1)
     expect(workspace.mentions.size).toBe(1)
 
     expect(await workspace.save(mentionMarkup())).toEqual([])
-    expect(getCommonNotificationTxes).toHaveBeenCalledTimes(1)
+    expectNotifications(1)
   })
 
   it('updates the mention excerpt without notifying again across repeated surrounding text edits', async () => {
@@ -159,7 +171,7 @@ describe('collaborative document mention notifications', () => {
         updated
       )[0].message
 
-      expect(getCommonNotificationTxes).toHaveBeenCalledTimes(1)
+      expectNotifications(1)
       expect(txes).toHaveLength(1)
       expect(txes[0]).toMatchObject({
         _class: core.class.TxUpdateDoc,
@@ -169,7 +181,7 @@ describe('collaborative document mention notifications', () => {
       })
       expect(workspace.mentions.get(mentionId)?.content).toBe(content)
       expect(await workspace.save(updated)).toEqual([])
-      expect(getCommonNotificationTxes).toHaveBeenCalledTimes(1)
+      expectNotifications(1)
     }
   })
 
@@ -188,17 +200,17 @@ describe('collaborative document mention notifications', () => {
       }
 
       await workspace.save(jsonToMarkup(content))
-      expect(getCommonNotificationTxes).toHaveBeenCalledTimes(1)
+      expectNotifications(1)
       expect(workspace.mentions.size).toBe(1)
       const [mentionId] = workspace.mentions.keys()
 
       firstParagraph?.content?.push({ type: MarkupNodeType.text, text: ' edit' })
       await workspace.save(jsonToMarkup(content))
-      expect(getCommonNotificationTxes).toHaveBeenCalledTimes(1)
+      expectNotifications(1)
 
       firstParagraph?.content?.splice(1, 1)
       await workspace.save(jsonToMarkup(content))
-      expect(getCommonNotificationTxes).toHaveBeenCalledTimes(1)
+      expectNotifications(1)
       expect(Array.from(workspace.mentions.keys())).toEqual([mentionId])
       expect(await workspace.save(jsonToMarkup(content))).toEqual([])
     }
@@ -215,7 +227,7 @@ describe('collaborative document mention notifications', () => {
     })
 
     expect(await workspace.save(jsonToMarkup(updated))).toEqual([])
-    expect(getCommonNotificationTxes).toHaveBeenCalledTimes(1)
+    expectNotifications(1)
   })
 
   it('only notifies the new user when an existing mention is edited and another user is mentioned', async () => {
@@ -227,7 +239,7 @@ describe('collaborative document mention notifications', () => {
 
     await workspace.save(jsonToMarkup(updated))
 
-    expect(getCommonNotificationTxes).toHaveBeenCalledTimes(2)
+    expectNotifications(2)
     expect(Array.from(workspace.mentions.values()).map((mention) => mention.user)).toEqual(['user', 'other-user'])
   })
 
@@ -241,11 +253,11 @@ describe('collaborative document mention notifications', () => {
       objectClass: activity.class.UserMentionInfo
     })
     expect(workspace.mentions.size).toBe(0)
-    expect(getCommonNotificationTxes).toHaveBeenCalledTimes(1)
+    expectNotifications(1)
 
     await workspace.save(mentionMarkup())
     expect(workspace.mentions.size).toBe(1)
-    expect(getCommonNotificationTxes).toHaveBeenCalledTimes(2)
+    expectNotifications(2)
   })
 
   it('notifies a newly mentioned user when an existing mention is replaced', async () => {
@@ -253,7 +265,38 @@ describe('collaborative document mention notifications', () => {
     await workspace.save(mentionMarkup())
     await workspace.save(mentionMarkup(' first line', 'other-user'))
 
-    expect(getCommonNotificationTxes).toHaveBeenCalledTimes(2)
+    expectNotifications(2)
     expect(Array.from(workspace.mentions.values()).map((mention) => mention.user)).toEqual(['other-user'])
+  })
+
+  it('drops only a duplicate mention record and keeps the notifications of a mention that still exists', async () => {
+    const workspace = createWorkspace()
+    await workspace.save(mentionMarkup())
+    const [original] = workspace.mentions.values()
+    const duplicate = { ...original, _id: 'duplicate-mention' as Ref<UserMentionInfo> }
+    workspace.mentions.set(duplicate._id, duplicate)
+
+    const txes = await workspace.save(mentionMarkup(' first line edited'))
+
+    expectNotifications(1)
+    expect(txes.map((tx) => [tx._class, tx.objectId])).toEqual([
+      [core.class.TxUpdateDoc, original._id],
+      [core.class.TxRemoveDoc, duplicate._id]
+    ])
+    expect(Array.from(workspace.mentions.keys())).toEqual([original._id])
+  })
+
+  it('refreshes a legacy mention record whose content is not valid JSON instead of failing the trigger', async () => {
+    const workspace = createWorkspace()
+    await workspace.save(mentionMarkup())
+    const [mention] = workspace.mentions.values()
+    mention.content = ''
+
+    const txes = await workspace.save(mentionMarkup())
+
+    expectNotifications(1)
+    expect(txes).toHaveLength(1)
+    expect(txes[0]).toMatchObject({ _class: core.class.TxUpdateDoc, objectId: mention._id })
+    expect(workspace.mentions.get(mention._id)?.content).not.toBe('')
   })
 })
