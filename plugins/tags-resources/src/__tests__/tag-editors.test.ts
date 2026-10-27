@@ -12,8 +12,8 @@ import type { TagElement, TagReference } from '@hcengineering/tags'
 import { showPopup, tooltip } from '@hcengineering/ui'
 import { getObjectId } from '@hcengineering/view-resources'
 import { SvelteComponent, tick } from 'svelte'
-import AttributeBarEditor from '../../../../packages/presentation/src/components/AttributeBarEditor.svelte'
-import InlineAttributeBarEditor from '../../../../packages/presentation/src/components/InlineAttributeBarEditor.svelte'
+import AttributeBarEditor from '@hcengineering/presentation/src/components/AttributeBarEditor.svelte'
+import InlineAttributeBarEditor from '@hcengineering/presentation/src/components/InlineAttributeBarEditor.svelte'
 import DocTagsEditor from '../components/DocTagsEditor.svelte'
 import LabelsPresenter from '../components/LabelsPresenter.svelte'
 import TagsAttributeEditor from '../components/TagsAttributeEditor.svelte'
@@ -54,11 +54,11 @@ jest.mock('../utils', () => ({
 }))
 jest.mock('@hcengineering/analytics', () => ({ Analytics: { handleError: jest.fn(), handleEvent: jest.fn() } }))
 jest.mock('@hcengineering/presentation', () => ({ createQuery: jest.fn(), getClient: jest.fn() }))
-jest.mock('../../../../packages/presentation/src/utils', () => {
+jest.mock('@hcengineering/presentation/src/utils', () => {
   const presentation = jest.requireMock<{ getClient: typeof getClient }>('@hcengineering/presentation')
   return { getClient: presentation.getClient, getAttributeEditor: jest.fn() }
 })
-jest.mock('../../../../packages/presentation/src/attributes', () => ({
+jest.mock('@hcengineering/presentation/src/attributes', () => ({
   getAttribute: jest.fn(),
   updateAttribute: jest.fn()
 }))
@@ -196,7 +196,10 @@ function selected (): string | null {
 }
 
 function click (label: string): void {
-  const button = Array.from(document.querySelectorAll('button')).find((element) => element.textContent === label)
+  // Production buttons keep template whitespace between the icon and label, e.g. " Add label".
+  const button = Array.from(document.querySelectorAll('button')).find(
+    (element) => element.textContent?.trim() === label
+  )
   if (button === undefined) throw new Error(`Missing ${label} button`)
   button.click()
 }
@@ -656,7 +659,7 @@ it('passes mixin collection metadata from the real inline host to the tag editor
   const key: KeyedAttribute = { key: 'skills', attr: attribute }
   const inlineUtilities = jest.requireMock<{
     getAttributeEditor: jest.Mock<Promise<typeof TagsAttributeEditor>, []>
-  }>('../../../../packages/presentation/src/utils')
+  }>('@hcengineering/presentation/src/utils')
   inlineUtilities.getAttributeEditor.mockResolvedValue(TagsAttributeEditor)
   component = new InlineAttributeBarEditor({
     target: document.body,
@@ -807,7 +810,7 @@ it('preserves inherited Board labels through the panel host and explicit Card-sc
   references = [label, createReference({ attachedToClass: taskClass, title: 'Task scope' })]
   const inlineUtilities = jest.requireMock<{
     getAttributeEditor: jest.Mock<Promise<typeof TagsAttributeEditor>, []>
-  }>('../../../../packages/presentation/src/utils')
+  }>('@hcengineering/presentation/src/utils')
   inlineUtilities.getAttributeEditor.mockResolvedValue(TagsAttributeEditor)
   component = new AttributeBarEditor({ target: document.body, props: { object: card, _class: card._class, key } })
   await flushUpdates()
