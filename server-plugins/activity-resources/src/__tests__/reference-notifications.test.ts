@@ -5,7 +5,6 @@ import contact from '@hcengineering/contact'
 import core, {
   TxFactory,
   TxProcessor,
-  type AccountUuid,
   type Class,
   type Doc,
   type DocumentUpdate,
@@ -104,7 +103,7 @@ function createWorkspace ({
     findAll: jest.fn(async (_ctx: MeasureContext, clazz: string, query: Record<string, unknown>) => {
       if (clazz === docClass) return [document]
       if (clazz === core.class.Space) return [{ members: ['receiver'], private: false }]
-      if (clazz === contact.mixin.Employee) return [{ personUuid: 'receiver' as AccountUuid }]
+      if (clazz === contact.mixin.Employee) return [{ personUuid: 'receiver' }]
       if (clazz === activity.class.UserMentionInfo) {
         return Array.from(mentions.values()).filter((mention) => matches(mention, query))
       }
