@@ -422,7 +422,7 @@ export async function connect (title: string): Promise<Client | undefined> {
                 )
                 console.log('Reconnect Model version', newVersion)
 
-                const currentVersionStr = versionToString(version as Version)
+                const currentVersionStr = versionToString(version)
                 const reconnectVersionStr = versionToString(newVersion as Version)
 
                 if (currentVersionStr !== reconnectVersionStr) {
