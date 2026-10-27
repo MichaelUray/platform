@@ -135,7 +135,8 @@ export class RecruitingPage {
     await this.vacanciesLink().click()
     await this.softwareEngineerLink().click()
     await expect(this.page.locator('text=Software Engineer').first()).toBeVisible()
-    await expect(this.page.locator('text="APP-1"').first()).toBeVisible()
+    // APP-1 is not one of the Software Engineer applications, so check that the vacancy lists any application.
+    await expect(this.page.getByText(/^APP-\d+$/).first()).toBeVisible()
   }
 
   async navigateToGeneralChatAndContacts (): Promise<void> {
