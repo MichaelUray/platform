@@ -13,7 +13,6 @@
 // limitations under the License.
 // -->
 <script lang="ts">
-  import { Analytics } from '@hcengineering/analytics'
   import {
     getJsonOrEmpty,
     getClient,
@@ -28,6 +27,7 @@
   import { getImageDimensions } from '../utils'
   import LinkPreviewIcon from './LinkPreviewIcon.svelte'
   import LinkPreviewImage from './LinkPreviewImage.svelte'
+  import { Analytics } from '@hcengineering/analytics'
 
   export let attachment: WithLookup<Attachment>
   export let isOwn = false
@@ -125,7 +125,6 @@
   .link-preview {
     display: flex;
     flex-direction: column;
-    box-sizing: border-box;
     gap: 0.25rem;
     line-height: 150%;
     padding: 0.75rem;

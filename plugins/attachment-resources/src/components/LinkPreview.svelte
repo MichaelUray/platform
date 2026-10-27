@@ -90,7 +90,6 @@
   .link-preview {
     display: flex;
     flex-direction: column;
-    box-sizing: border-box;
     gap: 0.25rem;
     line-height: 150%;
     padding: 0.75rem;
