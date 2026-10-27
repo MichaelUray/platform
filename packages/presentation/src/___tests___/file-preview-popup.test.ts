@@ -37,9 +37,7 @@ interface PreviewStorage {
   getFileUrl: (workspace: string, file: string, filename?: string) => string
 }
 
-interface StorageConstructor {
-  new (baseUrl: string): PreviewStorage
-}
+type StorageConstructor = new (baseUrl: string) => PreviewStorage
 
 interface Deferred<T> {
   promise: Promise<T>
@@ -230,7 +228,7 @@ function createPreview (options: PreviewOptions = {}): PreviewFixture {
     getSelection: () => [],
     getResource: async (action: string): Promise<() => void> => {
       const resource = createDeferred<() => void>()
-      const completed = createDeferred<void>()
+      const completed = createDeferred<undefined>()
       pendingActions.push({
         id: action,
         resolveResource: () => {
@@ -241,7 +239,7 @@ function createPreview (options: PreviewOptions = {}): PreviewFixture {
         },
         completed: completed.promise
       })
-      return resource.promise
+      return await resource.promise
     },
     getContextActionsSync: (_client: unknown, _docs: unknown, ctx: { mode: string }) => {
       modes.push(ctx.mode)
