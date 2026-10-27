@@ -13,7 +13,6 @@ import { showPopup, tooltip } from '@hcengineering/ui'
 import { getCollectionCounter, getObjectId } from '@hcengineering/view-resources'
 import { SvelteComponent, tick } from 'svelte'
 import AttributeBarEditor from '@hcengineering/presentation/src/components/AttributeBarEditor.svelte'
-import InlineAttributeBarEditor from '@hcengineering/presentation/src/components/InlineAttributeBarEditor.svelte'
 import DocTagsEditor from '../components/DocTagsEditor.svelte'
 import LabelsPresenter from '../components/LabelsPresenter.svelte'
 import TagsAttributeEditor from '../components/TagsAttributeEditor.svelte'
@@ -656,7 +655,7 @@ it('uses the attribute scope when the inline collection changes', async () => {
   })
 })
 
-it('passes mixin collection metadata from the real inline host to the tag editor', async () => {
+it('passes mixin collection metadata from the real panel attribute host to the tag editor', async () => {
   references = [
     createReference(),
     createReference({ _id: 'mixin-skill' as Ref<TagReference>, attachedToClass: targetClass, collection: 'skills' })
@@ -668,10 +667,7 @@ it('passes mixin collection metadata from the real inline host to the tag editor
     getAttributeEditor: jest.Mock<Promise<typeof TagsAttributeEditor>, []>
   }>('@hcengineering/presentation/src/utils')
   inlineUtilities.getAttributeEditor.mockResolvedValue(TagsAttributeEditor)
-  component = new InlineAttributeBarEditor({
-    target: document.body,
-    props: { object, _class: targetClass, key }
-  })
+  component = new AttributeBarEditor({ target: document.body, props: { object, _class: targetClass, key } })
   await flushUpdates()
 
   expect(document.querySelectorAll('[data-reference]')).toHaveLength(1)

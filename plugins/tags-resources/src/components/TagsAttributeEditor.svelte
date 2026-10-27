@@ -16,7 +16,8 @@
   export let label: IntlString = tags.string.AddLabel
   export let readonly: boolean = false
   export let attr: AnyAttribute | undefined = undefined
-  // InlineAttributeBarEditor supplies the attribute name and its declaring class.
+  // The panel attribute host supplies the edited attribute, so mixin collections can use the mixin scope.
+  // `attr` above is only forwarded to the reference presenter.
   export let attribute: AnyAttribute | undefined = undefined
   export let attributeKey: string = 'labels'
   export let targetClass: Ref<Class<Doc>> | undefined = undefined
