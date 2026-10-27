@@ -41,13 +41,13 @@
     { sort: { weight: -1, title: 1 } }
   )
 
-  async function addRef (tag: TagElement): Promise<void> {
+  async function addRef(tag: TagElement): Promise<void> {
     await addTagReference(client, object, tag, key.key, _class)
   }
 
   const pendingToggles = new Map<string, Promise<void>>()
 
-  async function toggleTag (tag: TagElement, selected: boolean): Promise<void> {
+  async function toggleTag(tag: TagElement, selected: boolean): Promise<void> {
     const origin = { object: { ...object }, referenceClass: _class, collection: key.key }
     const scopeKey = JSON.stringify([origin.object._id, origin.referenceClass, origin.collection, tag._id])
     const previous = pendingToggles.get(scopeKey)
@@ -89,15 +89,15 @@
     }
   }
 
-  async function removeTag (id: Ref<TagReference>): Promise<void> {
+  async function removeTag(id: Ref<TagReference>): Promise<void> {
     await client.removeCollection(tags.class.TagReference, object.space, id, object._id, _class, key.key)
   }
 
-  async function updateWeight (tag: TagReference, weight: TagReference['weight']): Promise<void> {
+  async function updateWeight(tag: TagReference, weight: TagReference['weight']): Promise<void> {
     await client.update(tag, { weight })
   }
 
-  function handleError (error: unknown): void {
+  function handleError(error: unknown): void {
     Analytics.handleError(error instanceof Error ? error : new Error(String(error)))
   }
 </script>

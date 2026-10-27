@@ -42,7 +42,7 @@
   )
   const client = getClient()
   const hierarchy = client.getHierarchy()
-  async function addRef (tag: TagElement): Promise<void> {
+  async function addRef(tag: TagElement): Promise<void> {
     const origin = scope
     if (!(await addTagReference(client, origin.object, tag, origin.collection, origin.referenceClass))) return
 
@@ -51,7 +51,7 @@
     Analytics.handleEvent(TagsEvents.TagCreated, { objectId: id, objectClass: origin.object._class })
   }
 
-  async function removeTag (tag: TagElement): Promise<void> {
+  async function removeTag(tag: TagElement): Promise<void> {
     const origin = scope
     const tagRef = await client.findOne(tags.class.TagReference, {
       tag: tag._id,
@@ -67,7 +67,7 @@
     }
   }
 
-  function onUpdate (event: CustomEvent<{ action: string, tag: TagElement }>): void {
+  function onUpdate(event: CustomEvent<{ action: string, tag: TagElement }>): void {
     const result = event.detail
     if (result === undefined) return
     const operation = result.action === 'add' ? addRef : result.action === 'remove' ? removeTag : undefined

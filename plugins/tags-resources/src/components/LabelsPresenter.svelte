@@ -28,7 +28,7 @@
 
   $: update(object, value)
 
-  function update (object: WithLookup<Doc>, value: number): void {
+  function update(object: WithLookup<Doc>, value: number): void {
     if (value > 0) {
       query.query(
         tags.class.TagReference,
@@ -43,7 +43,7 @@
     }
   }
 
-  async function tagsHandler (evt: MouseEvent): Promise<void> {
+  async function tagsHandler(evt: MouseEvent): Promise<void> {
     showPopup(TagsEditorPopup, { object }, getEventPopupPositionElement(evt), undefined, undefined, {
       refId: 'TagsPopup',
       category: 'popup',

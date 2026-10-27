@@ -49,10 +49,10 @@
   )
 
   const client = getClient()
-  async function addRef (tag: TagElement): Promise<void> {
+  async function addRef(tag: TagElement): Promise<void> {
     await Promise.all(objects.map((object) => addTagReference(client, object, tag)))
   }
-  async function removeTag (tag: TagElement): Promise<void> {
+  async function removeTag(tag: TagElement): Promise<void> {
     await Promise.all(
       objects.map(async (object) => {
         const tagRef = await client.findOne(tags.class.TagReference, {
@@ -65,7 +65,7 @@
       })
     )
   }
-  function onUpdate (event: CustomEvent<{ action: string, tag: TagElement }>): void {
+  function onUpdate(event: CustomEvent<{ action: string, tag: TagElement }>): void {
     const result = event.detail
     if (result === undefined) return
     const operation = result.action === 'add' ? addRef : result.action === 'remove' ? removeTag : undefined

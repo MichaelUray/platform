@@ -25,7 +25,7 @@
   $: selected = tags.map((p) => p.tag)
 
   const dispatch = createEventDispatcher()
-  async function addRef ({ title, color, _id: tag }: TagElement): Promise<void> {
+  async function addRef({ title, color, _id: tag }: TagElement): Promise<void> {
     if (hasTagReference(tags, { _id: tag })) return
 
     tags = [
@@ -39,12 +39,12 @@
     dispatch('update', tags)
   }
 
-  async function removeTag (tag: TagElement): Promise<void> {
+  async function removeTag(tag: TagElement): Promise<void> {
     tags = tags.filter((t) => t.tag !== tag._id)
     dispatch('update', tags)
   }
 
-  async function onUpdate (event: CustomEvent<{ action: string, tag: TagElement }>): Promise<void> {
+  async function onUpdate(event: CustomEvent<{ action: string, tag: TagElement }>): Promise<void> {
     const result = event.detail
     if (result === undefined) return
     if (result.action === 'add') addRef(result.tag)

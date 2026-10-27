@@ -37,7 +37,7 @@
       items = result
     }
   )
-  async function tagsHandler (evt: MouseEvent): Promise<void> {
+  async function tagsHandler(evt: MouseEvent): Promise<void> {
     if (readonly) return
     showPopup(
       TagsEditorPopup,
@@ -48,7 +48,7 @@
       { refId: 'TagsPopup', category: 'popup', overlay: true }
     )
   }
-  async function removeTag (tag: TagReference): Promise<void> {
+  async function removeTag(tag: TagReference): Promise<void> {
     if (tag !== undefined) {
       await client.remove(tag)
       const id = await getObjectId(object, hierarchy)

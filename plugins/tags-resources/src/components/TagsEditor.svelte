@@ -78,12 +78,12 @@
     { items: initial, label: tags.string.Initial }
   ]
 
-  function addRef (tag: TagElement): void {
+  function addRef(tag: TagElement): void {
     if (hasTagReference(items, tag)) return
 
     dispatch('open', tag)
   }
-  function addTag (evt: Event): void {
+  function addTag(evt: Event): void {
     showPopup(
       TagsPopup,
       {
@@ -117,7 +117,7 @@
     )
   }
 
-  function removeTag (id: Ref<TagReference>): void {
+  function removeTag(id: Ref<TagReference>): void {
     dispatch('delete', id)
   }
 </script>
