@@ -66,7 +66,7 @@
   $: titleName = name ?? ''
   $: void loadDrawings(file)
 
-  async function loadDrawings (requestedFile: Ref<Blob> | undefined): Promise<void> {
+  async function loadDrawings(requestedFile: Ref<Blob> | undefined): Promise<void> {
     const request = ++drawingRequest
     drawingLoading = false
     if (props.drawingAvailable === true) {
@@ -109,11 +109,11 @@
     }
   })
 
-  function toggleDrawingEdit (): void {
+  function toggleDrawingEdit(): void {
     props.drawingEditable = !(props.drawingEditable === true)
   }
 
-  function selectCurrentDrawing (ev: MouseEvent): void {
+  function selectCurrentDrawing(ev: MouseEvent): void {
     if (props.drawings === undefined || props.drawings.length === 0) {
       // no current means no history
       return
@@ -144,12 +144,6 @@
     )
   }
 </script>
-
-<style>
-  .antiTitle:focus {
-    outline: none;
-  }
-</style>
 
 <ActionContext context={{ mode: 'browser' }} />
 <Modal
@@ -251,3 +245,9 @@
     <FilePreview {file} {contentType} {name} {metadata} {props} fit />
   {/if}
 </Modal>
+
+<style>
+  .antiTitle:focus {
+    outline: none;
+  }
+</style>
