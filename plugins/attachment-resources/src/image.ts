@@ -12,6 +12,8 @@ export interface ImageDimensions {
  * minimum width or half its bounded source width. Below that threshold, switch
  * to a readable-width cover crop. This is intentionally a discrete change: with
  * 64–400 pixel bounds, 400×800 is 200×400 contain, but 400×801 is 400×400 cover.
+ * Images whose scaled height is below the minimum height are cover-cropped to fill
+ * a box of the minimum height.
  * Small images may be enlarged to satisfy both minimum dimensions.
  * Missing, non-finite or non-positive source dimensions use a minimum-size cover crop.
  */
