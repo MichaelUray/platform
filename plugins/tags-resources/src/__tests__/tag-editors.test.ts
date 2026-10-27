@@ -10,7 +10,7 @@ import type { KeyedAttribute } from '@hcengineering/presentation'
 import tags, { TagsEvents } from '@hcengineering/tags'
 import type { TagElement, TagReference } from '@hcengineering/tags'
 import { showPopup, tooltip } from '@hcengineering/ui'
-import { getObjectId } from '@hcengineering/view-resources'
+import { getCollectionCounter, getObjectId } from '@hcengineering/view-resources'
 import { SvelteComponent, tick } from 'svelte'
 import AttributeBarEditor from '@hcengineering/presentation/src/components/AttributeBarEditor.svelte'
 import InlineAttributeBarEditor from '@hcengineering/presentation/src/components/InlineAttributeBarEditor.svelte'
@@ -62,7 +62,7 @@ jest.mock('@hcengineering/presentation/src/attributes', () => ({
   getAttribute: jest.fn(),
   updateAttribute: jest.fn()
 }))
-jest.mock('@hcengineering/view-resources', () => ({ getObjectId: jest.fn() }))
+jest.mock('@hcengineering/view-resources', () => ({ getCollectionCounter: jest.fn(), getObjectId: jest.fn() }))
 jest.mock('@hcengineering/tags', () => ({
   __esModule: true,
   default: { class: { TagReference: 'tags:class:TagReference' }, string: { AddLabel: 'Add label' } },
@@ -219,6 +219,7 @@ beforeEach(() => {
   const liveQuery = { query, unsubscribe: jest.fn() }
   jest.mocked(createQuery).mockReturnValue(liveQuery as unknown as ReturnType<typeof createQuery>)
   jest.mocked(getObjectId).mockResolvedValue('document-id')
+  jest.mocked(getCollectionCounter).mockReturnValue(0)
 })
 
 afterEach(() => {
@@ -603,7 +604,13 @@ it('keeps the full editor, inline editor, counter, tooltip and popup in the same
   })
   component.$destroy()
 
+  // The table presenter shows the document's own counter for that attribute, as before this change.
+  jest.mocked(getCollectionCounter).mockReturnValue(1)
   component = new TagsPresenter({ target: document.body, props: { value: object, _class: targetClass, key: 'skills' } })
+  expect(getCollectionCounter).toHaveBeenCalledWith(client.getHierarchy(), object, {
+    key: 'skills',
+    attr: { label: 'skills' }
+  })
   expect(document.body.textContent?.trim()).toBe('1')
   const tooltipCall = jest.mocked(tooltip).mock.lastCall
   if (tooltipCall === undefined) throw new Error('Missing tooltip')
@@ -833,7 +840,12 @@ it('preserves inherited Board labels through the panel host and explicit Card-sc
   component.$destroy()
 
   // These are the actual TableView/KanbanCard presenter props for a Board Card.
+  jest.mocked(getCollectionCounter).mockReturnValue(1)
   component = new TagsPresenter({ target: document.body, props: { value: card, _class: card._class, key: 'labels' } })
+  expect(getCollectionCounter).toHaveBeenCalledWith(client.getHierarchy(), card, {
+    key: 'labels',
+    attr: { label: 'labels' }
+  })
   expect(document.body.textContent?.trim()).toBe('1')
   expect(jest.mocked(tooltip).mock.lastCall?.[1]).toMatchObject({
     component: TagsPresentationPopup,
