@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: EPL-2.0
 
-import { registerMermaidIconPacks } from './mermaid-icon-packs'
+import { loadIconPack, registerMermaidIconPacks } from './mermaid-icon-packs'
 
 describe('registerMermaidIconPacks', () => {
   it('registers bundled icon packs only once', async () => {
@@ -20,5 +20,12 @@ describe('registerMermaidIconPacks', () => {
 
     await expect(iconPacks[0].loader()).resolves.toMatchObject({ prefix: 'logos' })
     await expect(iconPacks[1].loader()).resolves.toMatchObject({ prefix: 'mdi' })
+  })
+
+  it('rejects when a pack is excluded from the build (desktop)', async () => {
+    // The desktop build aliases the packs to an empty module, see mermaid-icon-packs.ts
+    await expect(loadIconPack('logos', Promise.resolve({}))).rejects.toThrow(
+      'Mermaid icon pack "logos" is not included in this build'
+    )
   })
 })
