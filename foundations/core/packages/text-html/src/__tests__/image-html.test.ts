@@ -6,13 +6,17 @@ import { htmlToMarkup, markupToHtml } from '..'
 it.each([null, '', undefined])('keeps file-id through notification/email HTML when src is %s', (src) => {
   const html = markupToHtml({
     type: MarkupNodeType.doc,
-    content: [{
-      type: MarkupNodeType.paragraph,
-      content: [{
-        type: MarkupNodeType.image,
-        attrs: { 'file-id': 'blob"&/id', src, alt: 'image.png', width: 320 }
-      }]
-    }]
+    content: [
+      {
+        type: MarkupNodeType.paragraph,
+        content: [
+          {
+            type: MarkupNodeType.image,
+            attrs: { 'file-id': 'blob"&/id', src, alt: 'image.png', width: 320 }
+          }
+        ]
+      }
+    ]
   })
   expect(html).toContain('file-id="blob&quot;&amp;/id"')
   expect(html).not.toContain('src="null"')

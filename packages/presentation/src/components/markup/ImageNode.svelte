@@ -10,9 +10,8 @@
 
   function resolveImage(attrs: Attrs, compact: boolean): { src?: string, srcset?: string } {
     const source = attrs.src != null && attrs.src !== '' ? String(attrs.src) : undefined
-    const fileId = attrs['file-id'] != null && attrs['file-id'] !== ''
-      ? String(attrs['file-id'])
-      : getPlatformFileId(source ?? '')
+    const fileId =
+      attrs['file-id'] != null && attrs['file-id'] !== '' ? String(attrs['file-id']) : getPlatformFileId(source ?? '')
     if (fileId === undefined) return { src: source }
 
     try {

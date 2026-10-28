@@ -18,8 +18,9 @@ it('resolves a legacy source passed directly by image actions to getFileUrl', ()
     deleteFile: jest.fn()
   })
   try {
-    expect(getFileUrl('platform://platform/files/workspace/?file=folder%2Fimage%20%2B.png'))
-      .toBe('https://storage.example/folder%2Fimage%20%2B.png')
+    expect(getFileUrl('platform://platform/files/workspace/?file=folder%2Fimage%20%2B.png')).toBe(
+      'https://storage.example/folder%2Fimage%20%2B.png'
+    )
     expect(getStorageUrl).toHaveBeenCalledWith('workspace', 'folder/image +.png', undefined)
   } finally {
     setMetadata(plugin.metadata.WorkspaceUuid, undefined)

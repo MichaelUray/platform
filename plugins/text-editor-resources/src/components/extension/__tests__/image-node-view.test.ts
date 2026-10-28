@@ -48,13 +48,17 @@ it.each([
     ],
     content: {
       type: 'doc',
-      content: [{
-        type: 'paragraph',
-        content: [{
-          type: 'image',
-          attrs
-        }]
-      }]
+      content: [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'image',
+              attrs
+            }
+          ]
+        }
+      ]
     }
   })
   try {

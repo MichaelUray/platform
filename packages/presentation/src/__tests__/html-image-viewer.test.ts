@@ -2,7 +2,7 @@
 
 import { type WorkspaceUuid } from '@hcengineering/core'
 import { setMetadata } from '@hcengineering/platform'
-import { markupToHtml } from '../../../../foundations/core/packages/text-html/src'
+import { markupToHtml } from '@hcengineering/text-html'
 import { MarkupNodeType } from '@hcengineering/text'
 import { tick } from 'svelte'
 import HTMLViewer from '../components/HTMLViewer.svelte'
@@ -16,10 +16,19 @@ jest.mock('@hcengineering/text', () => ({
 jest.mock('@hcengineering/emoji', () => ({ loadParseEmojisFunction: async () => undefined }))
 
 it.each([
-  ['notification HTML', (): string => markupToHtml({
-    type: MarkupNodeType.doc,
-    content: [{ type: MarkupNodeType.paragraph, content: [{ type: MarkupNodeType.image, attrs: { 'file-id': 'blob-id', src: null } }] }]
-  })],
+  [
+    'notification HTML',
+    (): string =>
+      markupToHtml({
+        type: MarkupNodeType.doc,
+        content: [
+          {
+            type: MarkupNodeType.paragraph,
+            content: [{ type: MarkupNodeType.image, attrs: { 'file-id': 'blob-id', src: null } }]
+          }
+        ]
+      })
+  ],
   ['legacy HTML', (): string => '<img src="platform://platform/files/workspace/?file=blob-id">']
 ] as const)('renders %s through the production HTML parser and viewer', async (_name, html) => {
   setMetadata(plugin.metadata.WorkspaceUuid, 'workspace' as WorkspaceUuid)

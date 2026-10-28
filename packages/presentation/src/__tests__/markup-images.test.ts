@@ -5,8 +5,8 @@ import { setMetadata } from '@hcengineering/platform'
 import { type FileStorage } from '@hcengineering/storage-client'
 import { type Attrs, jsonToMarkup, MarkupNodeType } from '@hcengineering/text'
 import { tick } from 'svelte'
-import { markdownToMarkup, markupToMarkdown } from '../../../../foundations/core/packages/text-markdown/src'
-import { htmlToMarkup, markupToHtml } from '../../../../foundations/core/packages/text-html/src'
+import { markdownToMarkup, markupToMarkdown } from '@hcengineering/text-markdown'
+import { htmlToMarkup, markupToHtml } from '@hcengineering/text-html'
 
 import MessageViewer from '../components/MessageViewer.svelte'
 import LiteMessageViewer from '../components/LiteMessageViewer.svelte'
@@ -24,13 +24,17 @@ const DATA_SRC = 'data:image/png;base64,iVBORw0KGgo='
 function message (attrs: Attrs): string {
   return jsonToMarkup({
     type: MarkupNodeType.doc,
-    content: [{
-      type: MarkupNodeType.paragraph,
-      content: [{
-        type: MarkupNodeType.image,
-        attrs: { alt: 'image.png', width: 320, height: 180, ...attrs }
-      }]
-    }]
+    content: [
+      {
+        type: MarkupNodeType.paragraph,
+        content: [
+          {
+            type: MarkupNodeType.image,
+            attrs: { alt: 'image.png', width: 320, height: 180, ...attrs }
+          }
+        ]
+      }
+    ]
   })
 }
 
@@ -40,7 +44,9 @@ describe.each([
   ['compact preview', LiteMessageViewer, {}]
 ] as const)('%s images', (_name, Viewer, options) => {
   const storage: FileStorage = {
-    getFileUrl: jest.fn((_workspace: string, id: string) => `https://storage.example/current/${encodeURIComponent(id)}`),
+    getFileUrl: jest.fn(
+      (_workspace: string, id: string) => `https://storage.example/current/${encodeURIComponent(id)}`
+    ),
     getCookiePath: jest.fn(),
     getFileMeta: jest.fn(),
     uploadFile: jest.fn(),
@@ -72,28 +78,32 @@ describe.each([
     { 'file-id': 'stored-blob', src: 'https://old.example/expired/image.png' },
     { 'file-id': 'stored-blob', src: 'platform://platform/files/workspace/?file=wrong-blob' },
     { 'file-id': 'stored-blob', src: 'image://stored-blob?file=stored-blob' }
-  ])(`${Viewer === MessageViewer ? 'control' : 'regression'}: resolves the stored blob instead of the saved src: %j`, async (attrs) => {
-    const stored = message(attrs)
-    viewer = new Viewer({ target, props: { ...options, message: stored } })
-    await tick()
+  ])(
+    `${Viewer === MessageViewer ? 'control' : 'regression'}: resolves the stored blob instead of the saved src: %j`,
+    async (attrs) => {
+      const stored = message(attrs)
+      viewer = new Viewer({ target, props: { ...options, message: stored } })
+      await tick()
 
-    const image = target.querySelector('img')
-    expect(image?.getAttribute('src')).toBe('https://storage.example/current/stored-blob')
-    expect(image?.getAttribute('alt')).toBe('image.png')
-    expect(image?.getAttribute('width')).toBe('320')
-    expect(image?.getAttribute('height')).toBe('180')
-    expect(storage.getFileUrl).toHaveBeenCalledWith('current-workspace', 'stored-blob', undefined)
-    if (Viewer === LiteMessageViewer) {
-      expect(image?.getAttribute('srcset')).toContain('size=32')
+      const image = target.querySelector('img')
+      expect(image?.getAttribute('src')).toBe('https://storage.example/current/stored-blob')
+      expect(image?.getAttribute('alt')).toBe('image.png')
+      expect(image?.getAttribute('width')).toBe('320')
+      expect(image?.getAttribute('height')).toBe('180')
+      expect(storage.getFileUrl).toHaveBeenCalledWith('current-workspace', 'stored-blob', undefined)
+      if (Viewer === LiteMessageViewer) {
+        expect(image?.getAttribute('srcset')).toContain('size=32')
+      }
     }
-  })
+  )
 
   it('resolves a legacy src-only platform URL after loading a stored comment', async () => {
     viewer = new Viewer({ target, props: { ...options, message: message({ 'file-id': null, src: PLATFORM_SRC }) } })
     await tick()
 
-    expect(target.querySelector('img')?.getAttribute('src'))
-      .toBe('https://storage.example/current/folder%2Fimage%20%2B.png')
+    expect(target.querySelector('img')?.getAttribute('src')).toBe(
+      'https://storage.example/current/folder%2Fimage%20%2B.png'
+    )
     expect(storage.getFileUrl).toHaveBeenCalledWith('current-workspace', 'folder/image +.png', undefined)
   })
 
@@ -130,12 +140,17 @@ describe.each([
   it('ignores an empty file-id and resolves the legacy source', async () => {
     viewer = new Viewer({ target, props: { ...options, message: message({ 'file-id': '', src: PLATFORM_SRC }) } })
     await tick()
-    expect(target.querySelector('img')?.getAttribute('src')).toBe('https://storage.example/current/folder%2Fimage%20%2B.png')
+    expect(target.querySelector('img')?.getAttribute('src')).toBe(
+      'https://storage.example/current/folder%2Fimage%20%2B.png'
+    )
   })
 
   it('falls back to the saved source when storage metadata is unavailable', async () => {
     setMetadata(plugin.metadata.FileStorage, undefined)
-    viewer = new Viewer({ target, props: { ...options, message: message({ 'file-id': 'stored-blob', src: DATA_SRC }) } })
+    viewer = new Viewer({
+      target,
+      props: { ...options, message: message({ 'file-id': 'stored-blob', src: DATA_SRC }) }
+    })
     await tick()
     expect(target.querySelector('img')?.getAttribute('src')).toBe(DATA_SRC)
   })
@@ -147,8 +162,9 @@ describe.each([
 
     viewer.$set({ message: message({ src: PLATFORM_SRC }) })
     await tick()
-    expect(target.querySelector('img')?.getAttribute('src'))
-      .toBe('https://storage.example/current/folder%2Fimage%20%2B.png')
+    expect(target.querySelector('img')?.getAttribute('src')).toBe(
+      'https://storage.example/current/folder%2Fimage%20%2B.png'
+    )
 
     viewer.$set({ message: message({ src: DATA_SRC }) })
     await tick()

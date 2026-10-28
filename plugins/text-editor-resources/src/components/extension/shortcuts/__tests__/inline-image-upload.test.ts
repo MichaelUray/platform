@@ -10,7 +10,9 @@ import { EditorView } from '@tiptap/pm/view'
 import { ImageUploadExtension } from '../imageUpload'
 import { type FileAttachFunction } from '../../types'
 
-jest.mock('@hcengineering/presentation', () => jest.requireActual('../../../../../../../packages/presentation/src/image'))
+jest.mock('@hcengineering/presentation', () =>
+  jest.requireActual('../../../../../../../packages/presentation/src/image')
+)
 jest.mock('@hcengineering/platform', () => ({
   ...jest.requireActual('@hcengineering/platform'),
   setPlatformStatus: jest.fn()
@@ -24,7 +26,9 @@ const schema = new Schema({
     image: {
       inline: true,
       group: 'inline',
-      attrs: Object.fromEntries(['file-id', 'data-file-type', 'src', 'alt', 'title', 'width'].map((key) => [key, { default: null }])),
+      attrs: Object.fromEntries(
+        ['file-id', 'data-file-type', 'src', 'alt', 'title', 'width'].map((key) => [key, { default: null }])
+      ),
       toDOM: (node) => ['img', node.attrs]
     }
   }
@@ -35,6 +39,7 @@ async function settle (): Promise<void> {
 }
 
 function createView (attachFile: FileAttachFunction): EditorView {
+  const MockEditor = jest.fn<Editor, []>()
   const extension = ImageUploadExtension.configure({
     attachFile,
     getFileUrl: (file) => `https://storage.example/${file}`
@@ -45,37 +50,35 @@ function createView (attachFile: FileAttachFunction): EditorView {
     name: extension.name,
     options: extension.options,
     storage: extension.storage,
-    editor: {} as Editor,
+    editor: new MockEditor(),
     parent: undefined
   })
   return new EditorView(document.createElement('div'), { state: EditorState.create({ schema, plugins }) })
 }
 
 describe('production image upload paste hooks', () => {
-  const OriginalImage = global.Image
   let view: EditorView
-  let warn: jest.SpyInstance
   let attachFile: jest.MockedFunction<FileAttachFunction>
 
   beforeEach(() => {
     jest.clearAllMocks()
-    warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    jest.spyOn(console, 'warn').mockImplementation(() => {})
     URL.createObjectURL = jest.fn(() => 'blob:clipboard')
     URL.revokeObjectURL = jest.fn()
-    global.Image = class {
-      onerror: ((event: Event) => void) | null = null
-      set src (_value: string) {
-        queueMicrotask(() => this.onerror?.(new Event('error')))
-      }
-    } as unknown as typeof Image
+    jest.spyOn(global, 'Image').mockImplementation(() => {
+      const image = document.createElement('img')
+      Object.defineProperty(image, 'src', {
+        set: () => queueMicrotask(() => image.dispatchEvent(new Event('error')))
+      })
+      return image
+    })
     attachFile = jest.fn(async (_file: File) => ({ file: 'blob-id' as Ref<PlatformBlob>, type: 'image/webp' }))
     view = createView(attachFile)
   })
 
   afterEach(() => {
     view.destroy()
-    warn.mockRestore()
-    global.Image = OriginalImage
+    jest.restoreAllMocks()
   })
 
   it('inserts a pasted file after upload when sizing rejects with a browser event', async () => {

@@ -237,15 +237,19 @@ function addNodeContent (builder: NodeBuilder, node?: MarkupNode): void {
     // Keep durable identity for downstream HTML consumers (notifications, email and editors).
     // A bare blob id is not a URL; the consumer must resolve it in its workspace.
     const fileId = attrs['file-id'] != null && attrs['file-id'] !== '' ? toString(attrs['file-id']) : undefined
-    builder.openTag('img', {
-      'data-type': 'image',
-      'file-id': fileId,
-      src: attrs.src != null && attrs.src !== '' ? toString(attrs.src) : undefined,
-      alt: attrs.alt != null ? toString(attrs.alt) : undefined,
-      title: attrs.title != null ? toString(attrs.title) : undefined,
-      width: attrs.width != null ? toString(attrs.width) : undefined,
-      height: attrs.height != null ? toString(attrs.height) : undefined
-    }, { selfClosing: true })
+    builder.openTag(
+      'img',
+      {
+        'data-type': 'image',
+        'file-id': fileId,
+        src: attrs.src != null && attrs.src !== '' ? toString(attrs.src) : undefined,
+        alt: attrs.alt != null ? toString(attrs.alt) : undefined,
+        title: attrs.title != null ? toString(attrs.title) : undefined,
+        width: attrs.width != null ? toString(attrs.width) : undefined,
+        height: attrs.height != null ? toString(attrs.height) : undefined
+      },
+      { selfClosing: true }
+    )
   } else if (node.type === MarkupNodeType.reference) {
     const label = toString(attrs.label)
     builder.openTag('span', {

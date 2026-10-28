@@ -24,6 +24,7 @@ module.exports = {
       moduleNameMapper: {
         // These viewers use only text-core exports, without the editor's Tiptap schema.
         '^@hcengineering/text$': '<rootDir>/../../foundations/core/packages/text-core/src/index.ts',
+        '^@hcengineering/text-(core|html|markdown)$': '<rootDir>/../../foundations/core/packages/text-$1/src/index.ts',
         // Unrelated leaf nodes are outside this test; keep the recursive image tree real.
         '/(CodeBlockNode|ObjectNode|MarkdownNode|Mark)\\.svelte$': '<rootDir>/src/__tests__/EmptyNode.svelte'
       }
