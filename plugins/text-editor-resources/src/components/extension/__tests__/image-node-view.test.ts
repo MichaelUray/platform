@@ -3,15 +3,16 @@
 
 import { type WorkspaceUuid } from '@hcengineering/core'
 import { setMetadata } from '@hcengineering/platform'
+import presentation, { type getFileStorage } from '@hcengineering/presentation'
 import { Editor, Node } from '@tiptap/core'
-import presentation from '../../../../../../packages/presentation/src/plugin'
-import { getFileStorage } from '../../../../../../packages/presentation/src/file'
 import { ImageExtension } from '../imageExt'
 
 jest.mock('@hcengineering/text', () => ({
   ImageNode: jest.requireActual('../../../../../../foundations/core/packages/text/src/nodes/image').ImageNode
 }))
 jest.mock('@hcengineering/presentation', () => ({
+  __esModule: true,
+  default: jest.requireActual('../../../../../../packages/presentation/src/plugin').default,
   ...jest.requireActual('../../../../../../packages/presentation/src/file'),
   ...jest.requireActual('../../../../../../packages/presentation/src/preview')
 }))

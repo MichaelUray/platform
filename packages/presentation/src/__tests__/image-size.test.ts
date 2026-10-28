@@ -12,8 +12,9 @@ describe('image decode failures', () => {
     URL.revokeObjectURL = revokeObjectURL
     jest.spyOn(global, 'Image').mockImplementation(() => {
       const image = document.createElement('img')
-      Object.defineProperty(image, 'src', {
-        set: () => queueMicrotask(() => image.dispatchEvent(new Event('error')))
+      jest.spyOn(image, 'src', 'set').mockImplementation((src) => {
+        image.setAttribute('src', src)
+        queueMicrotask(() => image.dispatchEvent(new Event('error')))
       })
       return image
     })

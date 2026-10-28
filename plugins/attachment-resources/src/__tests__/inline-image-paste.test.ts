@@ -3,21 +3,22 @@
 
 import { type Class, type Doc, type Ref, type Space, type WorkspaceUuid } from '@hcengineering/core'
 import { setMetadata } from '@hcengineering/platform'
+import presentation, { type getFileStorage, setUploadGuard } from '@hcengineering/presentation'
 import { tick } from 'svelte'
 import AttachmentRefInput from '../components/AttachmentRefInput.svelte'
 import { inserted } from './inline-image-fixture'
-import presentation from '../../../../packages/presentation/src/plugin'
-import { getFileStorage, setUploadGuard } from '../../../../packages/presentation/src/file'
 
 jest.mock('../../../../packages/presentation/src/filetypes', () => ({ getFileMetadata: async () => ({}) }))
 jest.mock('@hcengineering/presentation', () => ({
+  __esModule: true,
+  default: jest.requireActual('../../../../packages/presentation/src/plugin').default,
   ...jest.requireActual('../../../../packages/presentation/src/file'),
   ...jest.requireActual('../../../../packages/presentation/src/image'),
   DraftController: class {
     save (): void {}
     remove (): void {}
   },
-  draftsStore: require('svelte/store').writable({}),
+  draftsStore: jest.requireActual('svelte/store').writable({}),
   getClient: () => ({}),
   createQuery: () => ({ query: jest.fn(), unsubscribe: jest.fn() }),
   isLinkPreviewEnabled: () => false
@@ -36,7 +37,7 @@ async function settle (): Promise<void> {
 
 describe('comment composer clipboard image insertion', () => {
   const revokeObjectURL = jest.fn()
-  const uploadFile: jest.MockedFunction<ReturnType<typeof getFileStorage>['uploadFile']> = jest.fn(async () => {})
+  const uploadFile = jest.fn<Promise<void>, Parameters<ReturnType<typeof getFileStorage>['uploadFile']>>(async () => {})
   const storage: ReturnType<typeof getFileStorage> = {
     getFileUrl: jest.fn(),
     getCookiePath: jest.fn(),
@@ -56,10 +57,11 @@ describe('comment composer clipboard image insertion', () => {
     URL.createObjectURL = jest.fn(() => 'blob:clipboard')
     URL.revokeObjectURL = revokeObjectURL
     // Model a browser decode/CSP error, including the non-Error event the browser supplies.
-    jest.spyOn(global, 'Image').mockImplementation(() => {
+    jest.spyOn(globalThis, 'Image').mockImplementation(() => {
       const image = document.createElement('img')
-      Object.defineProperty(image, 'src', {
-        set: () => queueMicrotask(() => image.dispatchEvent(new Event('error')))
+      jest.spyOn(image, 'src', 'set').mockImplementation((src) => {
+        image.setAttribute('src', src)
+        queueMicrotask(() => image.dispatchEvent(new Event('error')))
       })
       return image
     })
@@ -90,9 +92,9 @@ describe('comment composer clipboard image insertion', () => {
   it.each(['image/webp', 'image/png'])(
     'uploads and inserts %s when clipboard dimensions cannot be decoded',
     async (type) => {
-      const bytes = Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==',
-        'base64'
+      const bytes = Uint8Array.from(
+        atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='),
+        (char) => char.charCodeAt(0)
       )
       const file = new File([bytes], 'image.png', { type })
       // jsdom File lacks arrayBuffer; browsers provide it. Keep real PNG chunk parsing.

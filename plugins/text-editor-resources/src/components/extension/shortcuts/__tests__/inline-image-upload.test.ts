@@ -67,8 +67,9 @@ describe('production image upload paste hooks', () => {
     URL.revokeObjectURL = jest.fn()
     jest.spyOn(global, 'Image').mockImplementation(() => {
       const image = document.createElement('img')
-      Object.defineProperty(image, 'src', {
-        set: () => queueMicrotask(() => image.dispatchEvent(new Event('error')))
+      jest.spyOn(image, 'src', 'set').mockImplementation((src) => {
+        image.setAttribute('src', src)
+        queueMicrotask(() => image.dispatchEvent(new Event('error')))
       })
       return image
     })
