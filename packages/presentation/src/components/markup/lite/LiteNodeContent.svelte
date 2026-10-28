@@ -17,6 +17,7 @@
   import { AttrValue, MarkupNode, MarkupNodeType, MarkupMarkType } from '@hcengineering/text'
 
   import LiteNodes from './LiteNodes.svelte'
+  import ImageNode from '../ImageNode.svelte'
   import ObjectNode from '../ObjectNode.svelte'
   import NodeMarks from '../NodeMarks.svelte'
   import { getBlobRef } from '../../../preview'
@@ -123,11 +124,11 @@
         {node.attrs?.emoji}
       {/if}
     </span>
+  {:else if node.type === MarkupNodeType.image}
+    <span class="emoji">
+      <ImageNode {attrs} compact />
+    </span>
   {:else if node.type === MarkupNodeType.gif}
-    <!-- A gif is a leaf, so the children-only fallback at the bottom of this file renders nothing
-    and a gif-only message previews as an empty line. Note MarkupNodeType.image is not handled here
-    either, so image-only messages have always previewed blank; gif is called out because a message
-    whose whole content is one gif is ordinary, where an image usually rides with an attachment. -->
     {@const alt = toString(attrs.alt)}
     <span class="emoji">
       {#if attrs['file-id'] != null}

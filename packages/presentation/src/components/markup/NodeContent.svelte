@@ -20,6 +20,7 @@
   import ObjectNode from './ObjectNode.svelte'
   import MarkdownNode from './MarkdownNode.svelte'
   import Node from './Node.svelte'
+  import ImageNode from './ImageNode.svelte'
   import { getBlobRef } from '../../preview'
   import { ParsedTextWithEmojis } from '@hcengineering/emoji'
 
@@ -159,17 +160,8 @@
       {/if}
     </div>
   {:else if node.type === MarkupNodeType.image}
-    {@const alt = toString(attrs.alt)}
-    {@const width = toString(attrs.width)}
-    {@const height = toString(attrs.height)}
     <div class="imgContainer max-h-60 max-w-60">
-      {#if attrs['file-id'] != null}
-        {#await getBlobRef(toRefBlob(attrs['file-id'])) then blobSrc}
-          <img src={blobSrc.src} srcset={blobSrc.srcset} {alt} {width} {height} />
-        {/await}
-      {:else if attrs.src != null}
-        <img src={toString(attrs.src)} {alt} {width} {height} />
-      {/if}
+      <ImageNode {attrs} />
     </div>
   {:else if node.type === MarkupNodeType.reference}
     {@const objectId = toString(attrs.id)}

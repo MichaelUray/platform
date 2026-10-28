@@ -37,8 +37,7 @@
     draftsStore,
     fetchLinkPreviewDetails,
     getClient,
-    getImageSize,
-    imageSizeToRatio,
+    getImageWidth,
     isLinkPreviewEnabled,
     uploadFile,
     LinkPreviewAttachmentMetadata,
@@ -212,7 +211,7 @@
       const { uuid, metadata } = await uploadFile(file)
       // Preserve ownership in drafts even if the image node is removed before the next send.
       await _createAttachment(uuid, file.name, file, { ...metadata, inlineImage: true })
-      const size = await getImageSize(file)
+      const width = await getImageWidth(file)
       refInput.insertMarkup(
         jsonToMarkup({
           type: MarkupNodeType.image,
@@ -221,7 +220,7 @@
             'data-file-type': file.type,
             alt: file.name,
             title: file.name,
-            width: imageSizeToRatio(size.width, size.pixelRatio)
+            width
           }
         })
       )

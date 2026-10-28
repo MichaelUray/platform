@@ -166,7 +166,7 @@ export const ImageExtension = ImageNode.extend<ImageOptions>({
       const setImageProps = (src: string | null, srcset: string | null): void => {
         if (src != null) imgElement.src = src
         if (srcset != null) imgElement.srcset = srcset
-        void imgElement.decode().finally(() => {
+        void imgElement.decode().catch(() => {}).finally(() => {
           const pos = typeof getPos === 'function' ? getPos() : 0
           setLoadingState(view, pos, false)
         })
@@ -190,8 +190,8 @@ export const ImageExtension = ImageNode.extend<ImageOptions>({
           imgElement.setAttribute(k, v)
         }
       }
-      const fileId = imgAttributes['file-id'] ?? getPlatformFileId(imgAttributes.src ?? '')
-      if (fileId !== null && imageSrcCache.has(fileId)) {
+      const fileId = imgAttributes['file-id'] || getPlatformFileId(imgAttributes.src ?? '')
+      if (fileId != null && imageSrcCache.has(fileId)) {
         const cached = imageSrcCache.get(fileId)
         setImageProps(cached?.src ?? null, cached?.srcset ?? null)
       }
@@ -205,6 +205,9 @@ export const ImageExtension = ImageNode.extend<ImageOptions>({
 
             setImageProps(val.src, val.srcset)
             imageSrcCache.set(fileId, { src: val.src, srcset: val.srcset })
+          }).catch(() => {
+            clearTimeout(setBrokenImg)
+            setImageProps(imgAttributes.src || null, null)
           })
         }
       } else {
