@@ -21,7 +21,11 @@ if (script === undefined || editor === undefined) {
 // Parse the real editor callback as JSX so the test executes the markup handler,
 // including on the old component where the callback discards its argument.
 const editorAst = ts.createSourceFile(
-  'members-editor.tsx', `const editor = ${editor}`, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX
+  'members-editor.tsx',
+  `const editor = ${editor}`,
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TSX
 )
 let onChange: string | undefined
 function findOnChange (node: ts.Node): void {
@@ -107,7 +111,10 @@ describe('CreateVacancy members', () => {
     await form.createVacancy()
 
     expect(createDoc).toHaveBeenCalledWith(
-      'vacancy', 'space', expect.objectContaining({ members, owners: ['creator'] }), 'vacancy-id'
+      'vacancy',
+      'space',
+      expect.objectContaining({ members, owners: ['creator'] }),
+      'vacancy-id'
     )
   })
 
@@ -121,18 +128,18 @@ describe('CreateVacancy members', () => {
     expect(createDoc.mock.calls[0][2].members).toEqual(['other-peer'])
   })
 
-  it.each<[string[]]>([
-    [['peer']],
-    [[]]
-  ])('does not replace explicit selection %j with template defaults', async (members) => {
-    const { form, createDoc } = createForm(['template-member'])
+  it.each<[string[]]>([[['peer']], [[]]])(
+    'does not replace explicit selection %j with template defaults',
+    async (members) => {
+      const { form, createDoc } = createForm(['template-member'])
 
-    form.onChange(members)
-    form.setDefaultMembers({ members: ['other-template-member'] })
-    await form.createVacancy()
+      form.onChange(members)
+      form.setDefaultMembers({ members: ['other-template-member'] })
+      await form.createVacancy()
 
-    expect(createDoc.mock.calls[0][2].members).toEqual(members)
-  })
+      expect(createDoc.mock.calls[0][2].members).toEqual(members)
+    }
+  )
 
   it.each<[string[] | undefined, string[]]>([
     [undefined, ['creator']],
