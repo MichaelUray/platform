@@ -60,20 +60,24 @@ describe('Applicant label category upgrade', () => {
 
     await recruitOperation.upgrade(new Map(), async () => client, 'create')
 
-    expect(await applicantCategories(client)).toEqual([
-      expect.objectContaining({
-        _id: expect.any(String),
-        space: core.space.Workspace,
-        icon: tags.icon.Tags,
-        label: 'Other',
-        targetClass: recruit.class.Applicant,
-        tags: [],
-        default: true
-      })
-    ])
-    expect(await client.findAll(tags.class.TagCategory, { targetClass: recruit.mixin.Candidate })).toEqual([
-      expect.objectContaining({ _id: recruit.category.Other, targetClass: recruit.mixin.Candidate, default: true })
-    ])
+    expect(await applicantCategories(client)).toEqual(
+      toFindResult([
+        expect.objectContaining({
+          _id: expect.any(String),
+          space: core.space.Workspace,
+          icon: tags.icon.Tags,
+          label: 'Other',
+          targetClass: recruit.class.Applicant,
+          tags: [],
+          default: true
+        })
+      ])
+    )
+    expect(await client.findAll(tags.class.TagCategory, { targetClass: recruit.mixin.Candidate })).toEqual(
+      toFindResult([
+        expect.objectContaining({ _id: recruit.category.Other, targetClass: recruit.mixin.Candidate, default: true })
+      ])
+    )
   })
 
   it('backfills the default when the existing recruiting defaults have already run', async () => {
@@ -82,13 +86,15 @@ describe('Applicant label category upgrade', () => {
 
     await recruitOperation.upgrade(state, async () => client, 'upgrade')
 
-    expect(await applicantCategories(client)).toEqual([
-      expect.objectContaining({ targetClass: recruit.class.Applicant, default: true, tags: [] })
-    ])
-    expect(await client.findAll(core.class.MigrationState, {
-      plugin: recruitId,
-      state: 'create-default-applicant-label-category'
-    })).toHaveLength(1)
+    expect(await applicantCategories(client)).toEqual(
+      toFindResult([expect.objectContaining({ targetClass: recruit.class.Applicant, default: true, tags: [] })])
+    )
+    expect(
+      await client.findAll(core.class.MigrationState, {
+        plugin: recruitId,
+        state: 'create-default-applicant-label-category'
+      })
+    ).toHaveLength(1)
   })
 
   it('does not duplicate the category when an incomplete upgrade is retried', async () => {
@@ -99,18 +105,15 @@ describe('Applicant label category upgrade', () => {
     await recruitOperation.upgrade(state, async () => client, 'upgrade')
 
     expect(await applicantCategories(client)).toHaveLength(1)
-    const categoryWrites = tx.mock.calls.filter(([transaction]) =>
-      (transaction as TxCreateDoc<Doc>).objectClass === tags.class.TagCategory
+    const categoryWrites = tx.mock.calls.filter(
+      ([transaction]) => (transaction as TxCreateDoc<Doc>).objectClass === tags.class.TagCategory
     )
     expect(categoryWrites).toHaveLength(1)
   })
 
   it('skips the backfill after its migration state is recorded', async () => {
     const { client, tx } = createClient()
-    const state = new Map([[recruitId, new Set([
-      'create-defaults-v2',
-      'create-default-applicant-label-category'
-    ])]])
+    const state = new Map([[recruitId, new Set(['create-defaults-v2', 'create-default-applicant-label-category'])]])
     const getClient = jest.fn(async () => client)
 
     await recruitOperation.upgrade(state, getClient, 'upgrade')
