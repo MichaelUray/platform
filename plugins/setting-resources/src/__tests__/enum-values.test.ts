@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: EPL-2.0
 
-import type { Enum, TxResult } from '@hcengineering/core'
+import type { Class, Enum, PersonId, Ref, Space, TxResult } from '@hcengineering/core'
 import { createEnumValueAdder } from '../utils/enum-values'
 
 function deferredUpdate (): {
@@ -8,13 +8,25 @@ function deferredUpdate (): {
   resolve: (result: TxResult) => void
   reject: (error: Error) => void
 } {
-  let resolve!: (result: TxResult) => void
-  let reject!: (error: Error) => void
-  const promise = new Promise<TxResult>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise
-    reject = rejectPromise
+  let resolveUpdate!: (result: TxResult) => void
+  let rejectUpdate!: (error: Error) => void
+  const promise = new Promise<TxResult>((resolve, reject) => {
+    resolveUpdate = resolve
+    rejectUpdate = reject
   })
-  return { promise, resolve, reject }
+  return { promise, resolve: resolveUpdate, reject: rejectUpdate }
+}
+
+function createEnumValue (): Enum {
+  return {
+    _id: 'test-enum' as Ref<Enum>,
+    _class: 'core:class:Enum' as Ref<Class<Enum>>,
+    space: 'core:space:Model' as Ref<Space>,
+    modifiedOn: 0,
+    modifiedBy: 'test-user' as PersonId,
+    name: 'Test enum',
+    enumValues: ['Original']
+  }
 }
 
 describe('enum option add', () => {
@@ -22,7 +34,7 @@ describe('enum option add', () => {
     const pending = deferredUpdate()
     const client = { update: jest.fn(() => pending.promise) }
     const add = createEnumValueAdder(client)
-    const value = { enumValues: ['Original'] } as Enum
+    const value = createEnumValue()
 
     const enter = add(value, 'Added')
     const blur = add(value, 'Added')
@@ -39,7 +51,7 @@ describe('enum option add', () => {
   it('allows another option after the previous update completes', async () => {
     const client = { update: jest.fn(async () => ({})) }
     const add = createEnumValueAdder(client)
-    const value = { enumValues: ['Original'] } as Enum
+    const value = createEnumValue()
 
     await expect(add(value, 'First')).resolves.toBe(true)
     await expect(add(value, 'Second')).resolves.toBe(true)
@@ -52,7 +64,7 @@ describe('enum option add', () => {
     const pending = deferredUpdate()
     const client = { update: jest.fn(() => pending.promise) }
     const add = createEnumValueAdder(client)
-    const value = { enumValues: ['Original'] } as Enum
+    const value = createEnumValue()
     const error = new Error('Update failed')
 
     const first = add(value, 'Added')
@@ -69,7 +81,7 @@ describe('enum option add', () => {
   it('does not write empty or already stored options', async () => {
     const client = { update: jest.fn(async () => ({})) }
     const add = createEnumValueAdder(client)
-    const value = { enumValues: ['Original'] } as Enum
+    const value = createEnumValue()
 
     await expect(add(value, '')).resolves.toBe(false)
     await expect(add(value, '  ')).resolves.toBe(false)
