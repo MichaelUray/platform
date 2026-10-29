@@ -290,8 +290,9 @@ async function isAuthorizedForTarget (
       { _id: targetSpace as Ref<Project> },
       { limit: 1 }
     )
-    const targetOk =
-      target !== undefined && !target.archived && (target as unknown as { restricted?: boolean }).restricted !== true
+    // Compare as unknown so lint autofixes cannot loosen the strict checks.
+    const flags = target as unknown as { archived?: unknown, restricted?: unknown } | undefined
+    const targetOk = target !== undefined && flags?.archived !== true && flags?.restricted !== true
     cache.set(targetKey, targetOk)
     if (!targetOk) return false
   }

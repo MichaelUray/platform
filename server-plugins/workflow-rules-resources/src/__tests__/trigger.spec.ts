@@ -656,6 +656,21 @@ describe('OnWorkflowRuleMirror', () => {
     expect(res).toHaveLength(0)
   })
 
+  it.each([{ archived: 'false' }, { archived: 1 }, { archived: null }])(
+    'allows a mirror when the target archived field is not strictly boolean true ($archived)',
+    async ({ archived }) => {
+      const control = makeControl({
+        issues: linkedPair(),
+        rules: [rule()],
+        projects: [project({ archived })]
+      })
+
+      const res = await OnWorkflowRuleMirror([updateTx(S.review)], control)
+      expect(res).toHaveLength(1)
+      expect(res[0]).toMatchObject({ objectId: 'issue:b1', operations: { status: S.done } })
+    }
+  )
+
   it('refuses to mirror onto an archived target even for an Admin', async () => {
     const control = makeControl({
       issues: linkedPair(),
