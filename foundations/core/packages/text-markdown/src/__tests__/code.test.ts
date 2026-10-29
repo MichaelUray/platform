@@ -175,6 +175,82 @@ describe('inline code delimiters', () => {
     ]))
   })
 
+  const nonTextNodes: Array<{
+    name: string
+    node: MarkupNode
+    markdown: string
+    parsed: MarkupNode
+  }> = [
+    {
+      name: 'hard break',
+      node: { type: MarkupNodeType.hard_break, marks: [code] },
+      markdown: '\\\n',
+      parsed: { type: MarkupNodeType.hard_break, content: [] }
+    },
+    {
+      name: 'emoji',
+      node: { type: MarkupNodeType.emoji, attrs: { emoji: '🙂' }, marks: [code] },
+      markdown: '🙂',
+      // Markdown represents emoji as plain text.
+      parsed: { type: MarkupNodeType.text, text: '🙂', marks: [] }
+    },
+    {
+      name: 'mention',
+      node: {
+        type: MarkupNodeType.reference,
+        attrs: { id: 'person-1', objectclass: 'contact:class:Person', label: 'L' },
+        marks: [code]
+      },
+      markdown: '[L](ref://?_class=contact%3Aclass%3APerson&_id=person-1&label=L)',
+      parsed: {
+        type: MarkupNodeType.reference,
+        attrs: { id: 'person-1', objectclass: 'contact:class:Person', label: 'L' },
+        content: [{ type: MarkupNodeType.text, text: 'L', marks: [] }]
+      }
+    }
+  ]
+
+  describe.each(nonTextNodes)('code-marked $name inside a selection', ({ node, markdown: separator, parsed }) => {
+    describe.each(['', ' after'])('followed by %j', (suffix) => {
+      it.each([
+        { before: ['a', 'b'], after: ['c', 'd``e'], beforeMarkdown: '`ab`', afterMarkdown: '```cd``e```' },
+        { before: ['a`', 'b'], after: ['c', 'd'], beforeMarkdown: '``a`b``', afterMarkdown: '`cd`' }
+      ])('keeps independent fences for $before and $after', ({ before, after, beforeMarkdown, afterMarkdown }) => {
+        const textNode = (text: string): MarkupNode => ({ type: MarkupNodeType.text, text, marks: [code] })
+        const trailing: MarkupNode[] = suffix === '' ? [] : [{ type: MarkupNodeType.text, text: suffix, marks: [] }]
+        const markup = inlineContent([...before.map(textNode), node, ...after.map(textNode), ...trailing])
+        const original = JSON.stringify(markup)
+
+        const markdown = markupToMarkdown(markup)
+
+        expect(markdown).toBe(beforeMarkdown + separator + afterMarkdown + suffix)
+        expect(markdownToMarkup(markdown)).toEqual(inlineContent([
+          textNode(before.join('')),
+          parsed,
+          textNode(after.join('')),
+          ...trailing
+        ]))
+        expect(JSON.stringify(markup)).toBe(original)
+      })
+    })
+  })
+
+  it('does not reuse an earlier code fence for a lone code-marked emoji', () => {
+    const markup = inlineContent([
+      { type: MarkupNodeType.text, text: 'a``b', marks: [code] },
+      { type: MarkupNodeType.text, text: ' between ', marks: [] },
+      { type: MarkupNodeType.emoji, attrs: { emoji: '🙂' }, marks: [code] }
+    ])
+
+    const markdown = markupToMarkdown(markup)
+
+    expect(markdown).toBe('```a``b``` between 🙂')
+    expect(markdownToMarkup(markdown)).toEqual(inlineContent([
+      { type: MarkupNodeType.text, text: 'a``b', marks: [code] },
+      { type: MarkupNodeType.text, text: ' between 🙂', marks: [] }
+    ]))
+  })
+
   it.each([bold, link])('preserves a shared outer $type mark around the whole code span', (outer) => {
     const markup = inlineContent([
       { type: MarkupNodeType.text, text: '`a', marks: [outer, code, italic] },

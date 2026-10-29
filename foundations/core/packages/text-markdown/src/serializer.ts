@@ -695,6 +695,9 @@ export class MarkdownState implements IState {
   renderNodeInline (state: InlineState, index: number): void {
     state.marks = state.node?.marks ?? []
     this.updateHardBreakMarks(state, index)
+    if (state.node !== undefined && state.node.type !== MarkupNodeType.text) {
+      state.marks = state.marks.filter((mark) => mark.type !== MarkupMarkType.code)
+    }
 
     if (state.node?.type === MarkupNodeType.text && state.marks.some((mark) => mark.type === MarkupMarkType.code)) {
       if (state.code === undefined || index >= state.code.end) {
