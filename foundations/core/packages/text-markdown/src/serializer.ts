@@ -64,8 +64,19 @@ function backtickFence (text: string, minimum: number): string {
   return '`'.repeat(length)
 }
 
-function backticksFor (node: MarkupNode | undefined, side: boolean): string {
-  const text = node?.text ?? ''
+function backticksFor (parent: MarkupNode, index: number, side: boolean): string {
+  const content = nodeContent(parent)
+  const hasCode = (node: MarkupNode | undefined): boolean =>
+    node?.marks?.some((mark) => mark.type === MarkupMarkType.code) === true
+  // Extra marks can split a code span into nodes with different mark sets.
+  let start = index
+  let end = index
+  while (start > 0 && hasCode(content[start - 1])) start--
+  while (end < content.length && hasCode(content[end])) end++
+  const text = content
+    .slice(start, end)
+    .map((node) => node.text ?? '')
+    .join('')
   const fence = backtickFence(text, 1)
   const padding = /^`|`$/.test(text) || (text.startsWith(' ') && text.endsWith(' ') && /[^ ]/.test(text)) ? ' ' : ''
   return side ? padding + fence : fence + padding
@@ -405,10 +416,10 @@ export const storeMarks: Record<string, MarkProcessor> = {
   },
   code: {
     open: (state, mark, parent, index) => {
-      return backticksFor(parent.content?.[index], false)
+      return backticksFor(parent, index, false)
     },
     close: (state, mark, parent, index) => {
-      return backticksFor(parent.content?.[index - 1], true)
+      return backticksFor(parent, index - 1, true)
     },
     mixable: false,
     expelEnclosingWhitespace: false,
