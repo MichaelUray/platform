@@ -126,14 +126,13 @@ jobs:
       - name: Validate...
         run: node common/scripts/install-run-rush.js validate
 
-      - name: Cache build results
-        uses: actions/cache@v6
+      - name: Save build results
+        uses: actions/cache/save@v6
         env:
           cache-name: cache-build-results
         with:
           path: ${{ env.CacheFolders}}
           key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-build-${{ env.cache-name }}-${{ github.sha }}
   svelte-check:
     needs: build
     runs-on: ubuntu-latest
