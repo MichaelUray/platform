@@ -9,6 +9,8 @@ import { markdownToMarkup, markupToMarkdown } from '@hcengineering/text-markdown
 import { htmlToMarkup, markupToHtml } from '@hcengineering/text-html'
 
 import MessageViewer from '../components/MessageViewer.svelte'
+import NodeContent from '../components/markup/NodeContent.svelte'
+import LiteNodeContent from '../components/markup/lite/LiteNodeContent.svelte'
 import LiteMessageViewer from '../components/LiteMessageViewer.svelte'
 import plugin from '../plugin'
 
@@ -177,5 +179,78 @@ describe.each([
 
     expect(target.querySelector('img')?.hasAttribute('src')).toBe(false)
     expect(storage.getFileUrl).not.toHaveBeenCalled()
+  })
+})
+
+describe.each([
+  ['full', NodeContent],
+  ['compact', LiteNodeContent]
+])('blob-backed markup nodes (%s)', (_name, Viewer) => {
+  let target: HTMLDivElement
+  let viewer: NodeContent | LiteNodeContent
+  const getFileUrl = jest.fn(() => 'https://storage.example/blob')
+
+  beforeEach(() => {
+    getFileUrl.mockReset().mockReturnValue('https://storage.example/blob')
+    target = document.createElement('div')
+    document.body.append(target)
+    setMetadata(plugin.metadata.WorkspaceUuid, 'workspace' as WorkspaceUuid)
+    setMetadata(plugin.metadata.FileStorage, {
+      getFileUrl,
+      getCookiePath: jest.fn(),
+      getFileMeta: jest.fn(),
+      uploadFile: jest.fn(),
+      deleteFile: jest.fn()
+    })
+  })
+
+  afterEach(() => {
+    viewer?.$destroy()
+    target.remove()
+    setMetadata(plugin.metadata.FileStorage, undefined)
+    setMetadata(plugin.metadata.WorkspaceUuid, undefined)
+  })
+
+  it.each(['', null, undefined, 42, false])('does not resolve an invalid GIF file-id: %s', async (fileId) => {
+    viewer = new Viewer({
+      target,
+      props: { node: { type: MarkupNodeType.gif, attrs: { 'file-id': fileId, src: DATA_SRC, alt: 'gif' } } }
+    })
+    await tick()
+    await tick()
+    expect(getFileUrl).not.toHaveBeenCalled()
+    expect(target.querySelector('img')?.getAttribute('src')).toBe(DATA_SRC)
+  })
+
+  it.each([
+    { type: MarkupNodeType.gif, attrs: { 'file-id': 'missing', alt: 'Missing GIF' } },
+    { type: MarkupNodeType.emoji, attrs: { kind: 'image', image: 'missing', emoji: ':missing:' } },
+    { type: MarkupNodeType.text, text: ':missing:' }
+  ])('shows a placeholder on rejected blob lookup: %j', async (node) => {
+    getFileUrl.mockImplementation(() => {
+      throw new Error('Missing blob')
+    })
+    viewer = new Viewer({
+      target,
+      props: {
+        node,
+        parseEmojisFunction: () => ({ nodes: [{ image: 'missing', emoji: ':missing:' }], emojisOnly: true })
+      }
+    })
+    for (let i = 0; i < 10; i++) await tick()
+    expect(target.querySelector('.broken-image')).not.toBeNull()
+    expect(target.textContent).toContain(node.attrs?.alt ?? ':missing:')
+  })
+
+  it.each([MarkupNodeType.gif, MarkupNodeType.image])('shows a placeholder on an HTTP/decoder image error (%s)', async (type) => {
+    viewer = new Viewer({
+      target,
+      props: { node: { type, attrs: { 'file-id': 'missing', alt: 'Unavailable image' } } }
+    })
+    for (let i = 0; i < 10; i++) await tick()
+    target.querySelector('img')?.dispatchEvent(new Event('error'))
+    await tick()
+    expect(target.querySelector('.broken-image')).not.toBeNull()
+    expect(target.textContent).toContain('Unavailable image')
   })
 })

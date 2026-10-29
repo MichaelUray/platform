@@ -14,14 +14,14 @@
 -->
 <script lang="ts">
   import { Class, Doc, Ref, Blob } from '@hcengineering/core'
-  import { AttrValue, MarkupNode, MarkupNodeType } from '@hcengineering/text'
+  import { AttrValue, isFileId, MarkupNode, MarkupNodeType } from '@hcengineering/text'
 
   import CodeBlockNode from './CodeBlockNode.svelte'
   import ObjectNode from './ObjectNode.svelte'
   import MarkdownNode from './MarkdownNode.svelte'
   import Node from './Node.svelte'
   import ImageNode from './ImageNode.svelte'
-  import { getBlobRef } from '../../preview'
+  import BlobImage from './BlobImage.svelte'
   import { ParsedTextWithEmojis } from '@hcengineering/emoji'
 
   export let node: MarkupNode
@@ -90,9 +90,7 @@
             {#if 'image' in textOrEmoji}
               {@const blob = toRefBlob(textOrEmoji.image)}
               {@const alt = toString(textOrEmoji.emoji)}
-              {#await getBlobRef(blob) then blobSrc}
-                <img src={blobSrc.src} {alt} />
-              {/await}
+              <BlobImage file={blob} {alt} />
             {:else}
               {textOrEmoji.emoji}
             {/if}
@@ -105,9 +103,7 @@
       {#if node.attrs?.kind === 'image'}
         {@const blob = toRefBlob(attrs.image)}
         {@const alt = toString(attrs.emoji)}
-        {#await getBlobRef(blob) then blobSrc}
-          <img src={blobSrc.src} {alt} />
-        {/await}
+        <BlobImage file={blob} {alt} />
       {:else}
         {node.attrs?.emoji}
       {/if}
@@ -151,10 +147,8 @@
     {@const width = toString(attrs.width)}
     {@const height = toString(attrs.height)}
     <div class="imgContainer max-h-60 max-w-60">
-      {#if attrs['file-id'] != null}
-        {#await getBlobRef(toRefBlob(attrs['file-id'])) then blobSrc}
-          <img src={blobSrc.src} srcset={blobSrc.srcset} {alt} {width} {height} />
-        {/await}
+      {#if isFileId(attrs['file-id'])}
+        <BlobImage file={toRefBlob(attrs['file-id'])} {alt} {width} {height} />
       {:else if attrs.src != null}
         <img src={toString(attrs.src)} {alt} {width} {height} />
       {/if}

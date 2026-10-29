@@ -2,15 +2,15 @@
 
 import type { Attachment } from '@hcengineering/attachment'
 import type { Blob, IdMap, Markup, Ref } from '@hcengineering/core'
-import { markupToJSON, traverseNode } from '@hcengineering/text'
+import { isFileId, markupToJSON, traverseNode } from '@hcengineering/text'
 
 /** Blob IDs rendered by inline image nodes, including images nested in lists or tables. */
 export function getInlineImageFiles (content: Markup): Set<Ref<Blob>> {
   const files = new Set<Ref<Blob>>()
   traverseNode(markupToJSON(content), (node) => {
     const file = node.attrs?.['file-id']
-    if (node.type === 'image' && typeof file === 'string' && file !== '') {
-      files.add(file as Ref<Blob>)
+    if (node.type === 'image' && isFileId(file)) {
+      files.add(file)
     }
     return true
   })

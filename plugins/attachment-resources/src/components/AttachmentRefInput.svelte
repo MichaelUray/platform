@@ -86,7 +86,11 @@
 
   let inputFile: HTMLInputElement
   let saved = false
-  const dispatch = createEventDispatcher()
+  const dispatch = createEventDispatcher<{
+    update: { message: Markup, attachments: number }
+    message: { message: Markup, attachments: number }
+    focus: void
+  }>()
 
   const client = getClient()
   const query = createQuery()
@@ -206,25 +210,22 @@
     }
   }
 
-  async function attachInlineImage(file: File): Promise<void> {
+  async function uploadInlineImage(file: File): Promise<Markup | undefined> {
     try {
       const { uuid, metadata } = await uploadFile(file)
-      // Preserve ownership in drafts even if the image node is removed before the next send.
+      // Register ownership before sizing/insertion; failed or removed nodes are cleaned up on send/destroy.
       await _createAttachment(uuid, file.name, file, { ...metadata, inlineImage: true })
       const width = await getImageWidth(file)
-      refInput.insertMarkup(
-        jsonToMarkup({
-          type: MarkupNodeType.image,
-          attrs: {
-            'file-id': uuid,
-            'data-file-type': file.type,
-            alt: file.name,
-            title: file.name,
-            width
-          }
-        })
-      )
-      await tick()
+      return jsonToMarkup({
+        type: MarkupNodeType.image,
+        attrs: {
+          'file-id': uuid,
+          'data-file-type': file.type,
+          alt: file.name,
+          title: file.name,
+          width
+        }
+      })
     } catch (err) {
       void setPlatformStatus(unknownError(err))
     }
@@ -336,7 +337,7 @@
   }
 
   export function isEmptyDraft(): boolean {
-    return attachments.size === 0 && isEmptyMarkup(content)
+    return visibleAttachments.length === 0 && isEmptyMarkup(content)
   }
 
   export async function createAttachments(message: Markup = content): Promise<void> {
@@ -369,6 +370,7 @@
     loading = true
     await createAttachments(event.detail)
     loading = false
+    // Counters track stored records, including inline images, after orphan cleanup.
     dispatch('message', { message: event.detail, attachments: attachments.size })
   }
 
@@ -426,13 +428,28 @@
   async function loadFiles(files: File[]): Promise<void> {
     fileUploads++
     try {
-      for (const file of files) {
-        if (inlineImages && file.type.startsWith('image/')) {
-          await attachInlineImage(file)
-        } else {
-          await createAttachment(file)
-        }
-      }
+      const limiter = new RateLimiter(10)
+      let insertion = Promise.resolve()
+      await Promise.all(
+        files.map((file) => {
+          if (!inlineImages || !file.type.startsWith('image/')) {
+            return limiter.exec(() => createAttachment(file))
+          }
+          const uploaded = limiter.exec(() => uploadInlineImage(file))
+          // Upload concurrently, but keep insertion order independent of upload completion.
+          insertion = insertion.then(async () => {
+            const markup = await uploaded
+            if (markup === undefined) return
+            try {
+              refInput.insertMarkup(markup)
+              await tick()
+            } catch (err) {
+              void setPlatformStatus(unknownError(err))
+            }
+          })
+          return insertion
+        })
+      )
     } finally {
       fileUploads--
     }
@@ -505,8 +522,12 @@
     class="flex-col"
     on:dragover|preventDefault={() => {}}
     on:dragleave={() => {}}
-    on:drop|capture={fileDrop}
-    on:drop|preventDefault|stopPropagation={() => {}}
+    on:drop|capture={(event) => {
+      if (inlineImages) void fileDrop(event)
+    }}
+    on:drop|preventDefault|stopPropagation={(event) => {
+      if (!inlineImages) void fileDrop(event)
+    }}
   >
     <ReferenceInput
       {focusIndex}
@@ -534,7 +555,7 @@
         ...uploadActions
       ]}
       showHeader={visibleAttachments.length > 0 || fileUploads > 0}
-      haveAttachment={attachments.size > 0}
+      haveAttachment={visibleAttachments.length > 0}
       on:focus
       on:blur
       on:message={onMessage}
@@ -556,7 +577,7 @@
                 <Loading />
               </div>
             {/if}
-            {#each visibleAttachments as attachment}
+            {#each visibleAttachments as attachment (attachment._id)}
               <div class="item flex">
                 <AttachmentPresenter
                   value={attachment}

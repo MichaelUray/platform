@@ -1,141 +1,331 @@
+/** @jest-environment jsdom */
 // SPDX-License-Identifier: EPL-2.0
 
-import type { Attachment } from '@hcengineering/attachment'
-import type { Blob, IdMap, Ref } from '@hcengineering/core'
-import { getInlineImageFiles, getVisibleAttachments, reconcileInlineAttachments } from '../attachment-files'
+import { type Class, type Doc, type Ref, type Space, type WorkspaceUuid } from '@hcengineering/core'
+import { EmptyMarkup } from '@hcengineering/text'
+import { setMetadata } from '@hcengineering/platform'
+import presentation, { type getFileStorage, setUploadGuard } from '@hcengineering/presentation'
+import { tick } from 'svelte'
+import AttachmentRefInput from '../components/AttachmentRefInput.svelte'
+import { inserted } from './inline-image-fixture'
 
-function attachment (id: string, metadata?: Attachment['metadata']): Attachment {
-  return { _id: id, file: id, metadata } as unknown as Attachment
+// Share the real Svelte runtime between the composer, nested editor and test listeners.
+jest.mock('svelte', () => jest.requireActual('svelte'))
+jest.mock('@hcengineering/text', () => ({
+  ...jest.requireActual('@hcengineering/text'),
+  ...jest.requireActual('../../../../foundations/core/packages/text/src/kit')
+}))
+jest.mock('../../../../packages/presentation/src/filetypes', () => ({ getFileMetadata: async () => ({}) }))
+jest.mock('@hcengineering/presentation', () => ({
+  __esModule: true,
+  default: jest.requireActual('../../../../packages/presentation/src/plugin').default,
+  ...jest.requireActual('../../../../packages/presentation/src/file'),
+  ...jest.requireActual('../../../../packages/presentation/src/image'),
+  DraftController: class {
+    save (): void {}
+    remove (): void {}
+  },
+  draftsStore: jest.requireActual('svelte/store').writable({}),
+  getClient: () => ({ addCollection: jest.fn(async () => {}) }),
+  createQuery: () => ({ query: jest.fn(), unsubscribe: jest.fn() }),
+  isLinkPreviewEnabled: () => false
+}))
+jest.mock('@hcengineering/text-editor-resources', () => ({
+  ReferenceInput: jest.requireActual('../../../text-editor-resources/src/components/ReferenceInput.svelte').default
+}))
+jest.mock('../../../text-editor-resources/src/components/TextEditor.svelte', () =>
+  jest.requireActual('./ComposerEditorStub.svelte')
+)
+jest.mock('../../../text-editor-resources/src/components/editor/actions', () => ({
+  defaultRefActions: [],
+  getModelRefActions: async () => []
+}))
+jest.mock('@hcengineering/ui', () => ({
+  Loading: jest.requireActual('../../../../packages/presentation/src/__tests__/EmptyNode.svelte').default,
+  Button: jest.requireActual('./ComposerButtonStub.svelte').default,
+  deviceOptionsStore: jest.requireActual('svelte/store').writable({ size: 'large' }),
+  checkAdaptiveMatching: () => false,
+  registerFocus: () => ({ idx: 0 }),
+  handler: (value: unknown, callback: (value: unknown, event: Event) => void) => (event: Event) => {
+    callback(value, event)
+  }
+}))
+jest.mock('@hcengineering/uploader', () => ({ getUploadHandlers: () => [] }))
+jest.mock('../components/AttachmentPresenter.svelte', () =>
+  jest.requireActual('../../../../packages/presentation/src/__tests__/EmptyNode.svelte')
+)
+
+async function settle (): Promise<void> {
+  for (let i = 0; i < 40; i++) await tick()
 }
 
-function withImages (...files: string[]): string {
-  return JSON.stringify({
-    type: 'doc',
-    content: files.map((file) => ({ type: 'image', attrs: { 'file-id': file } }))
-  })
-}
-
-describe('inline attachment visibility', () => {
-  const inline = attachment('inline', { inlineImage: true })
-  const document = attachment('document')
-  const attachments = [inline, document]
-
-  test('other composers retain image attachments when inline images are disabled', () => {
-    expect(getVisibleAttachments(attachments, new Set())).toEqual(attachments)
-  })
-
-  test('the composer hides pending inline uploads before markup insertion', () => {
-    expect(getVisibleAttachments(attachments, new Set(), true)).toEqual([document])
-  })
-
-  test('the composer hides referenced legacy images without inline metadata', () => {
-    const legacy = attachment('legacy')
-    const inlineFiles = getInlineImageFiles(withImages('legacy'))
-    expect(getVisibleAttachments([legacy, document], inlineFiles, true)).toEqual([document])
-  })
-
-  test('sent previews hide only files referenced inline in the message', () => {
-    expect(getVisibleAttachments(attachments, getInlineImageFiles(withImages('inline')))).toEqual([document])
-    expect(getVisibleAttachments(attachments, getInlineImageFiles(''))).toEqual(attachments)
-  })
-})
-
-describe('inline attachment reconciliation on send', () => {
-  let attachments: IdMap<Attachment>
-  let removedAttachments: Set<Attachment>
-  let newAttachments: Set<Ref<Attachment>>
-  let knownInlineFiles: Set<Ref<Blob>>
+describe('comment composer file handling', () => {
+  const revokeObjectURL = jest.fn()
+  const uploadFile = jest.fn<Promise<void>, Parameters<ReturnType<typeof getFileStorage>['uploadFile']>>(async () => {})
+  const storage: ReturnType<typeof getFileStorage> = {
+    getFileUrl: jest.fn(),
+    getCookiePath: jest.fn(),
+    getFileMeta: jest.fn(),
+    uploadFile,
+    deleteFile: jest.fn(async () => {})
+  }
+  let target: HTMLDivElement
+  let composer: AttachmentRefInput
 
   beforeEach(() => {
-    attachments = new Map()
-    removedAttachments = new Set()
-    newAttachments = new Set()
-    knownInlineFiles = new Set()
+    jest.clearAllMocks()
+    uploadFile.mockImplementation(async () => {})
+    inserted.length = 0
+    jest.spyOn(console, 'warn').mockImplementation(() => {})
+    jest.spyOn(console, 'trace').mockImplementation(() => {})
+    setMetadata(presentation.metadata.WorkspaceUuid, 'workspace' as WorkspaceUuid)
+    setMetadata(presentation.metadata.FileStorage, storage)
+    URL.createObjectURL = jest.fn(() => 'blob:clipboard')
+    URL.revokeObjectURL = revokeObjectURL
+    // Model a browser decode/CSP error, including the non-Error event the browser supplies.
+    jest.spyOn(globalThis, 'Image').mockImplementation(() => {
+      const image = document.createElement('img')
+      jest.spyOn(image, 'src', 'set').mockImplementation((src) => {
+        image.setAttribute('src', src)
+        queueMicrotask(() => image.dispatchEvent(new Event('error')))
+      })
+      return image
+    })
+    target = document.createElement('div')
+    document.body.append(target)
+    composer = new AttachmentRefInput({
+      target,
+      props: {
+        objectId: 'issue' as Ref<Doc>,
+        space: 'space' as Ref<Space>,
+        _class: 'issue-class' as Ref<Class<Doc>>,
+        inlineImages: true,
+        skipAttachmentsPreload: true,
+        showActions: false
+      }
+    })
   })
 
-  function reconcile (message: string): void {
-    reconcileInlineAttachments(message, attachments, removedAttachments, newAttachments, knownInlineFiles)
+  afterEach(async () => {
+    composer.$destroy()
+    await settle()
+    target.remove()
+    jest.restoreAllMocks()
+    setUploadGuard(undefined)
+    setMetadata(presentation.metadata.WorkspaceUuid, undefined)
+    setMetadata(presentation.metadata.FileStorage, undefined)
+  })
+
+  function paste (files: File[]): void {
+    const event = new Event('paste', { bubbles: true })
+    Object.defineProperty(event, 'clipboardData', { value: { files } })
+    target.querySelector('textarea')?.dispatchEvent(event)
   }
 
-  function add (item: Attachment, pending = true): void {
-    attachments.set(item._id, item)
-    if (pending) newAttachments.add(item._id)
+  function sendButton (): HTMLButtonElement {
+    const button = target.querySelector('button')
+    if (button === null) throw new Error('Missing send button')
+    return button
   }
 
-  test('keeps referenced inline uploads and ordinary files for saving', () => {
-    const inline = attachment('inline', { inlineImage: true })
-    const document = attachment('document')
-    add(inline)
-    add(document)
-    reconcile(withImages('inline'))
-    expect([...attachments.values()]).toEqual([inline, document])
-    expect([...newAttachments]).toEqual([inline._id, document._id])
-    expect(removedAttachments.size).toBe(0)
+  it('disables send and Enter and empties the draft after removing the only inline image', async () => {
+    const message = jest.fn()
+    composer.$on('message', message)
+    paste([new File(['image'], 'image.webp', { type: 'image/webp' })])
+    await settle()
+    expect(composer.isEmptyDraft()).toBe(false)
+    expect(sendButton().disabled).toBe(false)
+
+    const editor = target.querySelector('textarea')
+    if (editor === null) throw new Error('Missing editor')
+    editor.value = EmptyMarkup
+    editor.dispatchEvent(new Event('input', { bubbles: true }))
+    await settle()
+
+    expect({ disabled: sendButton().disabled, emptyDraft: composer.isEmptyDraft() }).toEqual({
+      disabled: true,
+      emptyDraft: true
+    })
+    sendButton().click()
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await settle()
+    expect(message).not.toHaveBeenCalled()
   })
 
-  test('queues an unused inline upload for deletion instead of saving it', () => {
-    const inline = attachment('inline', { inlineImage: true })
-    const document = attachment('document')
-    add(inline)
-    add(document)
-    reconcile('')
-    expect([...attachments.values()]).toEqual([document])
-    expect([...newAttachments]).toEqual([document._id])
-    expect([...removedAttachments]).toEqual([inline])
+  it('sends remaining text with Enter and cleans up the removed inline record', async () => {
+    const message = jest.fn()
+    composer.$on('message', message)
+    paste([new File(['image'], 'image.webp', { type: 'image/webp' })])
+    await settle()
+    const editor = target.querySelector('textarea')
+    if (editor === null) throw new Error('Missing editor')
+    const text = JSON.stringify({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hello' }] }]
+    })
+    editor.value = text
+    editor.dispatchEvent(new Event('input', { bubbles: true }))
+    await settle()
+    expect(sendButton().disabled).toBe(false)
+    expect(composer.isEmptyDraft()).toBe(false)
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await settle()
+    expect(message.mock.calls[0]?.[0].detail).toEqual({ message: text, attachments: 0 })
+    expect(storage.deleteFile).toHaveBeenCalledTimes(1)
   })
 
-  test('a restored draft retains inline ownership after the node was removed', () => {
-    const restored = JSON.parse(JSON.stringify(attachment('restored', { inlineImage: true }))) as Attachment
-    add(restored)
-    reconcile('')
-    expect(attachments.size).toBe(0)
-    expect(newAttachments.size).toBe(0)
-    expect([...removedAttachments]).toEqual([restored])
+  it.each([false, true])('uploads ordinary files ten at a time (inlineImages=%s)', async (inlineImages) => {
+    composer.$set({ inlineImages })
+    await settle()
+    const releases: Array<() => void> = []
+    uploadFile.mockImplementation(async () => {
+      await new Promise<void>((resolve) => releases.push(resolve))
+    })
+    paste(Array.from({ length: 12 }, (_, i) => new File(['file'], `${i}.txt`, { type: 'text/plain' })))
+    await settle()
+    expect(uploadFile).toHaveBeenCalledTimes(10)
+    expect(sendButton().disabled).toBe(true)
+    releases.splice(0).forEach((release) => {
+      release()
+    })
+    await settle()
+    expect(uploadFile).toHaveBeenCalledTimes(12)
+    releases.splice(0).forEach((release) => {
+      release()
+    })
+    await settle()
+    expect(sendButton().disabled).toBe(false)
+    expect(composer.isEmptyDraft()).toBe(false)
   })
 
-  test('queues an existing legacy attachment when its previously seen inline node is removed', () => {
-    const legacy = attachment('legacy')
-    add(legacy, false)
-    knownInlineFiles.add(legacy.file)
-    reconcile('')
-    expect(attachments.size).toBe(0)
-    expect([...removedAttachments]).toEqual([legacy])
+  it('uploads images concurrently and inserts them in selection order despite reversed completion', async () => {
+    const releases: Array<() => void> = []
+    uploadFile.mockImplementation(async () => {
+      await new Promise<void>((resolve) => releases.push(resolve))
+    })
+    const files = ['first', 'second', 'third'].map(
+      (name) => new File(['image'], `${name}.webp`, { type: 'image/webp' })
+    )
+    const input = target.querySelector('input')
+    if (input === null) throw new Error('Missing file input')
+    Object.defineProperty(input, 'files', { value: files })
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+    await settle()
+    expect(uploadFile).toHaveBeenCalledTimes(3)
+    releases[2]()
+    releases[1]()
+    await settle()
+    expect(inserted).toEqual([])
+    releases[0]()
+    await settle()
+    expect(inserted.map((markup) => JSON.parse(markup).attrs.alt)).toEqual(files.map((file) => file.name))
+    expect(sendButton().disabled).toBe(false)
   })
 
-  test('retains an existing legacy attachment still referenced in the submitted message', () => {
-    const legacy = attachment('legacy')
-    add(legacy, false)
-    knownInlineFiles.add(legacy.file)
-    reconcile(withImages('legacy'))
-    expect([...attachments.values()]).toEqual([legacy])
-    expect(newAttachments.size).toBe(0)
-    expect(removedAttachments.size).toBe(0)
+  it.each([false, true])('lets descendant drop handlers run only without inlineImages (%s)', async (inlineImages) => {
+    composer.$set({ inlineImages })
+    await settle()
+    const editor = target.querySelector('textarea')
+    if (editor === null) throw new Error('Missing editor')
+    const descendant = jest.fn((event: Event) => {
+      event.stopPropagation()
+    })
+    editor.addEventListener('drop', descendant)
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: { files: [new File(['image'], 'image.webp', { type: 'image/webp' })] }
+    })
+    editor.dispatchEvent(event)
+    await settle()
+    expect(descendant).toHaveBeenCalledTimes(inlineImages ? 0 : 1)
+    expect(uploadFile).toHaveBeenCalledTimes(inlineImages ? 1 : 0)
+    expect(inserted).toHaveLength(inlineImages ? 1 : 0)
   })
 
-  test('restores a removed chip if its blob is referenced inline before sending', () => {
-    const removed = attachment('removed')
-    removedAttachments.add(removed)
-    newAttachments.add(removed._id)
-    reconcile(withImages('removed'))
-    expect([...attachments.values()]).toEqual([removed])
-    expect([...newAttachments]).toEqual([removed._id])
-    expect(removedAttachments.size).toBe(0)
+  it.each([false, true])('uploads header drops exactly once (inlineImages=%s)', async (inlineImages) => {
+    composer.$set({ inlineImages })
+    await settle()
+    paste([new File(['file'], 'document.txt', { type: 'text/plain' })])
+    await settle()
+    uploadFile.mockClear()
+    const header = target.querySelector('.header')
+    if (header === null) throw new Error('Missing attachment header')
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', {
+      value: { files: [new File(['image'], 'image.webp', { type: 'image/webp' })] }
+    })
+    header.dispatchEvent(event)
+    await settle()
+    expect(event.defaultPrevented).toBe(true)
+    expect(uploadFile).toHaveBeenCalledTimes(1)
+    expect(inserted).toHaveLength(inlineImages ? 1 : 0)
   })
 
-  test('keeps unreferenced removed chips queued for cleanup', () => {
-    const removed = attachment('removed')
-    removedAttachments.add(removed)
-    reconcile('')
-    expect(attachments.size).toBe(0)
-    expect([...removedAttachments]).toEqual([removed])
+  it('does not intercept a text drop before the editor', async () => {
+    const editor = target.querySelector('textarea')
+    if (editor === null) throw new Error('Missing editor')
+    const descendant = jest.fn()
+    editor.addEventListener('drop', descendant)
+    const event = new Event('drop', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { files: [] } })
+    editor.dispatchEvent(event)
+    await settle()
+    expect(descendant).toHaveBeenCalledTimes(1)
+    expect(uploadFile).not.toHaveBeenCalled()
   })
 
-  test('keeps ordinary attachments when only an external image is present', () => {
-    const document = attachment('document')
-    add(document)
-    reconcile(JSON.stringify({ type: 'image', attrs: { src: 'https://example.com/image.png' } }))
-    expect([...attachments.values()]).toEqual([document])
-    expect([...newAttachments]).toEqual([document._id])
-    expect(removedAttachments.size).toBe(0)
+  it('continues ordered image insertion after an upload fails', async () => {
+    uploadFile.mockRejectedValueOnce(new Error('Upload refused'))
+    paste(['first', 'second'].map((name) => new File(['image'], `${name}.webp`, { type: 'image/webp' })))
+    await settle()
+    expect(uploadFile).toHaveBeenCalledTimes(2)
+    expect(inserted.map((markup) => JSON.parse(markup).attrs.alt)).toEqual(['second.webp'])
+    expect(sendButton().disabled).toBe(false)
   })
+
+  it('preserves record counters for inline images and ordinary attachments on update and send', async () => {
+    const update = jest.fn()
+    const message = jest.fn()
+    composer.$on('update', update)
+    composer.$on('message', message)
+    paste([
+      new File(['image'], 'image.webp', { type: 'image/webp' }),
+      new File(['file'], 'file.txt', { type: 'text/plain' })
+    ])
+    await settle()
+    expect(update.mock.calls.at(-1)?.[0].detail.attachments).toBe(2)
+    expect(sendButton().disabled).toBe(false)
+    sendButton().click()
+    await settle()
+    expect(message.mock.calls[0]?.[0].detail.attachments).toBe(2)
+  })
+
+  it.each(['image/webp', 'image/png'])(
+    'uploads and inserts %s when clipboard dimensions cannot be decoded',
+    async (type) => {
+      const bytes = Uint8Array.from(
+        atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='),
+        (char) => char.charCodeAt(0)
+      )
+      const file = new File([bytes], 'image.png', { type })
+      // jsdom File lacks arrayBuffer; browsers provide it. Keep real PNG chunk parsing.
+      Object.defineProperty(file, 'arrayBuffer', {
+        value: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+      })
+      const event = new Event('paste', { bubbles: true })
+      Object.defineProperty(event, 'clipboardData', { value: { files: [file] } })
+      target.querySelector('textarea')?.dispatchEvent(event)
+      await settle()
+
+      expect(uploadFile).toHaveBeenCalledTimes(1)
+      expect(inserted).toHaveLength(1)
+      const node = JSON.parse(inserted[0])
+      expect(node.type).toBe('image')
+      expect(node.attrs['file-id']).toBe(uploadFile.mock.calls[0][2])
+      expect(node.attrs.alt).toBe('image.png')
+      expect(node.attrs.width).toBeUndefined()
+      expect(target.querySelector('textarea')?.disabled).toBe(false)
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:clipboard')
+    }
+  )
 })

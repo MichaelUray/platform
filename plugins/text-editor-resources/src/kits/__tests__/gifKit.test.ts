@@ -27,10 +27,9 @@ const repoRoot = join(__dirname, '../../../../..')
 const read = (rel: string): string => readFileSync(join(repoRoot, rel), 'utf8')
 
 const EDITOR_KIT = 'plugins/text-editor-resources/src/kits/editor-kit.ts'
-const COMPOSERS = [
-  'plugins/attachment-resources/src/components/AttachmentRefInput.svelte',
-  'plugins/communication-resources/src/components/TextInput.svelte'
-]
+const ATTACHMENT_COMPOSER = 'plugins/attachment-resources/src/components/AttachmentRefInput.svelte'
+const COMMUNICATION_COMPOSER = 'plugins/communication-resources/src/components/TextInput.svelte'
+const COMPOSERS = [ATTACHMENT_COMPOSER, COMMUNICATION_COMPOSER]
 
 describe('gif registration in the editor kit', () => {
   it('reads real files, not an empty string', () => {
@@ -51,11 +50,11 @@ describe('gif registration in the editor kit', () => {
   })
 
   it('keeps the image node disabled in the communication composer', () => {
-    expect(read(COMPOSERS[1])).toMatch(/image:\s*false/)
+    expect(read(COMMUNICATION_COMPOSER)).toMatch(/image:\s*false/)
   })
 
   it('makes image nodes opt-in in the attachment composer independently of GIFs', () => {
-    const source = read(COMPOSERS[0])
+    const source = read(ATTACHMENT_COMPOSER)
     expect(source).toMatch(/export let inlineImages = false/)
     expect(source).toMatch(/image:\s*inlineImages/)
   })

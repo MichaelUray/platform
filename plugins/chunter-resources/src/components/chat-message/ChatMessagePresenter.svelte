@@ -279,13 +279,11 @@
           <ShowMore limit={compact ? 80 : undefined}>
             <div class="clear-mins" {...!pending && { 'data-delivered': true }}>
               <MessageViewer message={displayText} />
-              {#if (value.attachments ?? 0) > 0}
-                <div class="mt-2" />
-              {/if}
               <AttachmentDocList
                 {value}
                 {attachments}
-                inlineContent={value.message}
+                inlineContent={displayText}
+                showSeparator
                 imageSize={attachmentImageSize}
                 {videoPreload}
                 {isOwn}
@@ -295,13 +293,11 @@
         {:else}
           <div class="clear-mins" {...!pending && { 'data-delivered': true }}>
             <MessageViewer message={displayText} />
-            {#if (value.attachments ?? 0) > 0}
-              <div class="mt-2" />
-            {/if}
             <AttachmentDocList
               {value}
               {attachments}
-              inlineContent={value.message}
+              inlineContent={displayText}
+              showSeparator
               imageSize={attachmentImageSize}
               {videoPreload}
               {isOwn}
