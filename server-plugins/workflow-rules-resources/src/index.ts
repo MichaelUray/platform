@@ -12,7 +12,6 @@ import core, {
   systemAccountUuid,
   type AccountUuid,
   type PersonId,
-  type PluginConfiguration,
   type Ref,
   type Space,
   type Tx,
@@ -118,19 +117,13 @@ export async function OnWorkflowRuleMirror (_txes: Tx[], control: TriggerControl
     const newStatus = updateTx.operations.status
     if (newStatus == null) continue
 
-    const [source] = await control.findAll(
-      control.ctx,
-      tracker.class.Issue,
-      { _id: updateTx.objectId },
-      { limit: 1 }
-    )
+    const [source] = await control.findAll(control.ctx, tracker.class.Issue, { _id: updateTx.objectId }, { limit: 1 })
     if (source === undefined) continue
 
-    const rules = (await control.findAll(
-      control.ctx,
-      workflowRules.class.WorkflowRule,
-      { space: source.space, enabled: true }
-    )) as unknown as WorkflowRule[]
+    const rules = (await control.findAll(control.ctx, workflowRules.class.WorkflowRule, {
+      space: source.space,
+      enabled: true
+    })) as unknown as WorkflowRule[]
     if (rules.length === 0) continue
 
     for (const rule of rules) {
@@ -149,10 +142,11 @@ export async function OnWorkflowRuleMirror (_txes: Tx[], control: TriggerControl
         // TxCreateDoc<Issue> with attachedTo pointing at `source`. Deferred
         // from the first PR because sequence allocation needs its own review.
         if (rule.autoCreate != null && rule.autoCreate.triggerStatuses.includes(newStatus)) {
-          control.ctx.info(
-            '[workflow-rules] auto-create requested but not yet implemented',
-            { ruleId: rule._id, sourceIssue: source._id, status: newStatus }
-          )
+          control.ctx.info('[workflow-rules] auto-create requested but not yet implemented', {
+            ruleId: rule._id,
+            sourceIssue: source._id,
+            status: newStatus
+          })
         }
         continue
       }
@@ -170,39 +164,27 @@ export async function OnWorkflowRuleMirror (_txes: Tx[], control: TriggerControl
       const effectiveStatus = pendingStatuses.get(counterpart._id) ?? counterpart.status
       if (effectiveStatus === target) continue
 
-      const regressed = await checkRegressionGuard(
-        control,
-        counterpart,
-        effectiveStatus,
-        target,
-        rule
-      )
+      const regressed = await checkRegressionGuard(control, counterpart, effectiveStatus, target, rule)
       if (regressed) {
-        control.ctx.info(
-          '[workflow-rules] mirror suppressed by regression guard',
-          {
-            ruleId: rule._id,
-            source: source._id,
-            counterpart: counterpart._id,
-            from: effectiveStatus,
-            to: target
-          }
-        )
+        control.ctx.info('[workflow-rules] mirror suppressed by regression guard', {
+          ruleId: rule._id,
+          source: source._id,
+          counterpart: counterpart._id,
+          from: effectiveStatus,
+          to: target
+        })
         continue
       }
 
       const authorized = await isAuthorizedForTarget(control, updateTx.modifiedBy, counterpart.space, targetSpaceAuthz)
       if (!authorized) {
-        control.ctx.warn(
-          '[workflow-rules] mirror suppressed: actor not authorized on target project',
-          {
-            ruleId: rule._id,
-            source: source._id,
-            counterpart: counterpart._id,
-            targetSpace: counterpart.space,
-            modifiedBy: updateTx.modifiedBy
-          }
-        )
+        control.ctx.warn('[workflow-rules] mirror suppressed: actor not authorized on target project', {
+          ruleId: rule._id,
+          source: source._id,
+          counterpart: counterpart._id,
+          targetSpace: counterpart.space,
+          modifiedBy: updateTx.modifiedBy
+        })
         continue
       }
 
@@ -240,9 +222,10 @@ export async function OnWorkflowRuleMirror (_txes: Tx[], control: TriggerControl
  */
 function isPluginEnabled (control: TriggerControl): boolean {
   try {
+    // Persisted model data can be malformed despite the declared schema.
     const configs = control.modelDb.findAllSync(core.class.PluginConfiguration, {
       pluginId: workflowRulesId
-    }) as PluginConfiguration[]
+    }) as Array<{ enabled?: unknown }>
     if (configs.length !== 1) return false
     return configs[0].enabled === true
   } catch (e) {
@@ -308,9 +291,7 @@ async function isAuthorizedForTarget (
       { limit: 1 }
     )
     const targetOk =
-      target !== undefined &&
-      target.archived !== true &&
-      (target as unknown as { restricted?: boolean }).restricted !== true
+      target !== undefined && !target.archived && (target as unknown as { restricted?: boolean }).restricted !== true
     cache.set(targetKey, targetOk)
     if (!targetOk) return false
   }
@@ -425,7 +406,7 @@ export async function resolveCounterpart (
         control.ctx,
         tracker.class.Issue,
         {
-          _id: source.attachedTo as Ref<Issue>,
+          _id: source.attachedTo,
           space: rule.linkedProject
         },
         { limit: 1 }
@@ -433,7 +414,6 @@ export async function resolveCounterpart (
       return found
     }
     default: {
-      const _exhaustive: never = rule.linkKind
       return undefined
     }
   }
@@ -467,15 +447,10 @@ export async function checkRegressionGuard (
   target: Ref<IssueStatus>,
   rule: WorkflowRule
 ): Promise<boolean> {
-  const [tt] = await control.findAll(
-    control.ctx,
-    task.class.TaskType,
-    { _id: counterpart.kind },
-    { limit: 1 }
-  )
+  const [tt] = await control.findAll(control.ctx, task.class.TaskType, { _id: counterpart.kind }, { limit: 1 })
   if (tt === undefined || !Array.isArray(tt.statuses)) return true
 
-  const statuses: Array<Ref<IssueStatus>> = tt.statuses as Array<Ref<IssueStatus>>
+  const statuses: Array<Ref<IssueStatus>> = tt.statuses
   if (!statuses.includes(effectiveFrom) || !statuses.includes(target)) return true
   if (!Array.isArray(rule.allowedLoops)) return true
   for (const loop of rule.allowedLoops) {

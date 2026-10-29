@@ -108,10 +108,7 @@ function projectA (over: Any = {}): Any {
 
 /** Compact helper for the common "parent in A + child in B linked to it" fixture. */
 function linkedPair (childOver: Any = {}): Any[] {
-  return [
-    issue({ _id: 'issue:a1' }),
-    issue({ _id: 'issue:b1', space: PROJ_B, attachedTo: 'issue:a1', ...childOver })
-  ]
+  return [issue({ _id: 'issue:a1' }), issue({ _id: 'issue:b1', space: PROJ_B, attachedTo: 'issue:a1', ...childOver })]
 }
 
 function matches (value: unknown, criteria: any): boolean {
@@ -151,11 +148,12 @@ function makeControl (opts: WorldOptions = {}): any {
   // mirrors what the Configure page writes when an Owner opts in. The
   // trigger fails closed when the row is missing or disabled, so the
   // positive tests need the row to be present.
-  const configs = opts.pluginEnabled === false
-    ? [{ _id: 'pc:1', _class: core.class.PluginConfiguration, pluginId: workflowRulesId, enabled: false }]
-    : opts.pluginEnabled === undefined && opts.pluginConfigs !== undefined
-      ? opts.pluginConfigs
-      : [{ _id: 'pc:1', _class: core.class.PluginConfiguration, pluginId: workflowRulesId, enabled: true }]
+  const configs =
+    opts.pluginEnabled === false
+      ? [{ _id: 'pc:1', _class: core.class.PluginConfiguration, pluginId: workflowRulesId, enabled: false }]
+      : opts.pluginEnabled === undefined && opts.pluginConfigs !== undefined
+        ? opts.pluginConfigs
+        : [{ _id: 'pc:1', _class: core.class.PluginConfiguration, pluginId: workflowRulesId, enabled: true }]
 
   const socialStringsToUsers = new Map<string, { accontUuid: AccountUuid, role: AccountRole }>()
   socialStringsToUsers.set(SOC_ADMIN, { accontUuid: ACC_ADMIN, role: AccountRole.Admin })
@@ -174,9 +172,9 @@ function makeControl (opts: WorldOptions = {}): any {
       })
     }
     if (_class === workflowRules.class.WorkflowRule) {
-      return rulesList.filter((r) =>
-        (q.space === undefined || matches(r.space, q.space)) &&
-        (q.enabled === undefined || r.enabled === q.enabled)
+      return rulesList.filter(
+        (r) =>
+          (q.space === undefined || matches(r.space, q.space)) && (q.enabled === undefined || r.enabled === q.enabled)
       )
     }
     if (_class === tracker.class.Project) {
@@ -220,7 +218,12 @@ function makeControl (opts: WorldOptions = {}): any {
 }
 
 const DISPATCH_ORDERS = [
-  [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]
+  [0, 1, 2],
+  [0, 2, 1],
+  [1, 0, 2],
+  [1, 2, 0],
+  [2, 0, 1],
+  [2, 1, 0]
 ]
 
 async function dispatchRequest (request: Any[], groups: Any[][], opts: WorldOptions): Promise<Any[]> {
@@ -250,15 +253,28 @@ describe.each([false, true])('request chronology (allowedLoops=%s)', (withLoops)
       updateTx(S.done, { modifiedBy: SOC_ADMIN, modifiedOn: 1002 }),
       updateTx(S.inProgress, { modifiedBy: core.account.System, modifiedOn: 1003 })
     ]
-    const emitted = await dispatchRequest(request, order.map((i) => [request[i]]), {
-      issues: linkedPair(), rules: [identityRule]
-    })
+    const emitted = await dispatchRequest(
+      request,
+      order.map((i) => [request[i]]),
+      {
+        issues: linkedPair(),
+        rules: [identityRule]
+      }
+    )
     const legal = withLoops ? request : request.slice(0, 2)
-    expect(emitted.map((tx) => ({
-      status: tx.operations.status, modifiedOn: tx.modifiedOn, modifiedBy: tx.modifiedBy
-    }))).toEqual(legal.map((tx) => ({
-      status: tx.operations.status, modifiedOn: tx.modifiedOn, modifiedBy: tx.modifiedBy
-    })))
+    expect(
+      emitted.map((tx) => ({
+        status: tx.operations.status,
+        modifiedOn: tx.modifiedOn,
+        modifiedBy: tx.modifiedBy
+      }))
+    ).toEqual(
+      legal.map((tx) => ({
+        status: tx.operations.status,
+        modifiedOn: tx.modifiedOn,
+        modifiedBy: tx.modifiedBy
+      }))
+    )
     expect(emitted.every((tx) => tx.space === core.space.DerivedTx && tx.objectId === 'issue:b1')).toBe(true)
   })
 
@@ -285,12 +301,19 @@ describe.each([false, true])('request chronology (allowedLoops=%s)', (withLoops)
       withoutLoops: []
     }
   ])('$name', ({ base, targets, legal, withoutLoops }) => {
-    it.each([[0, 1], [1, 0]])('evaluates both candidates for dispatch %s,%s', async (first, second) => {
-      const request = targets.map((status, i) => updateTx(status, {
-        modifiedOn: 1001 + i, modifiedBy: i === 0 ? SOC_ADMIN : SOC_MEMBER
-      }))
+    it.each([
+      [0, 1],
+      [1, 0]
+    ])('evaluates both candidates for dispatch %s,%s', async (first, second) => {
+      const request = targets.map((status, i) =>
+        updateTx(status, {
+          modifiedOn: 1001 + i,
+          modifiedBy: i === 0 ? SOC_ADMIN : SOC_MEMBER
+        })
+      )
       const emitted = await dispatchRequest(request, [[request[first]], [request[second]]], {
-        issues: linkedPair({ status: base }), rules: [identityRule]
+        issues: linkedPair({ status: base }),
+        rules: [identityRule]
       })
       expect(emitted.map((tx) => tx.operations.status)).toEqual(withLoops ? legal : withoutLoops)
       for (const tx of emitted) {
@@ -311,8 +334,11 @@ describe('request chronology ties and authorization', () => {
     const findAll = control.findAll.getMockImplementation()
     control.findAll.mockImplementation(async (...args: unknown[]) => {
       // Fail on the second source lookup, after the first mirror is queued.
-      if (args[1] === tracker.class.Issue && (args[2] as Any)._id === 'issue:a1' &&
-          control.txFactory.createTxUpdateDoc.mock.calls.length === 1) {
+      if (
+        args[1] === tracker.class.Issue &&
+        (args[2] as Any)._id === 'issue:a1' &&
+        control.txFactory.createTxUpdateDoc.mock.calls.length === 1
+      ) {
         throw new Error('source lookup failed')
       }
       return await findAll(...args)
@@ -324,9 +350,13 @@ describe('request chronology ties and authorization', () => {
     control.findAll.mockImplementation(findAll)
 
     const emitted = await OnWorkflowRuleMirror([request[1]], control)
-    expect(emitted.map((tx) => ({
-      status: tx.operations.status, modifiedOn: tx.modifiedOn, modifiedBy: tx.modifiedBy
-    }))).toEqual([
+    expect(
+      emitted.map((tx) => ({
+        status: tx.operations.status,
+        modifiedOn: tx.modifiedOn,
+        modifiedBy: tx.modifiedBy
+      }))
+    ).toEqual([
       { status: S.inProgress, modifiedOn: 1001, modifiedBy: SOC_MEMBER },
       { status: S.done, modifiedOn: 1002, modifiedBy: SOC_ADMIN }
     ])
@@ -336,25 +366,29 @@ describe('request chronology ties and authorization', () => {
 
   it('emits each interleaved request exactly once across multiple actor groups on a shared session', async () => {
     const contextCache = new Map<string, unknown>()
-    const controls = [0, 1].map((i) => makeControl({
-      issues: linkedPair(),
-      rules: [rule()],
-      contextCache,
-      controlTxes: [
-        updateTx(S.inProgress, { modifiedBy: SOC_MEMBER, modifiedOn: 1001 + i * 10 }),
-        updateTx(S.review, { modifiedBy: SOC_ADMIN, modifiedOn: 1002 + i * 10 })
-      ]
-    }))
+    const controls = [0, 1].map((i) =>
+      makeControl({
+        issues: linkedPair(),
+        rules: [rule()],
+        contextCache,
+        controlTxes: [
+          updateTx(S.inProgress, { modifiedBy: SOC_MEMBER, modifiedOn: 1001 + i * 10 }),
+          updateTx(S.review, { modifiedBy: SOC_ADMIN, modifiedOn: 1002 + i * 10 })
+        ]
+      })
+    )
     const requests = controls.map((control) => [...control.txes])
     const emitted: Any[][] = [[], []]
 
     // Both first groups enter before either completes, then the second
     // groups revisit their own arrays with the other request in between.
     for (let group = 0; group < 2; group++) {
-      const results = await Promise.all(controls.map(async (control, i) => {
-        control.txFactory = new TxFactory(requests[i][group].modifiedBy, true)
-        return await OnWorkflowRuleMirror([requests[i][group]], control)
-      }))
+      const results = await Promise.all(
+        controls.map(async (control, i) => {
+          control.txFactory = new TxFactory(requests[i][group].modifiedBy, true)
+          return await OnWorkflowRuleMirror([requests[i][group]], control)
+        })
+      )
       results.forEach((result, i) => {
         if (group === 1) expect(result).toEqual([])
         emitted[i].push(...result)
@@ -363,9 +397,13 @@ describe('request chronology ties and authorization', () => {
     }
 
     emitted.forEach((result, i) => {
-      expect(result.map((tx) => ({
-        status: tx.operations.status, modifiedOn: tx.modifiedOn, modifiedBy: tx.modifiedBy
-      }))).toEqual([
+      expect(
+        result.map((tx) => ({
+          status: tx.operations.status,
+          modifiedOn: tx.modifiedOn,
+          modifiedBy: tx.modifiedBy
+        }))
+      ).toEqual([
         { status: S.inProgress, modifiedOn: 1001 + i * 10, modifiedBy: SOC_MEMBER },
         { status: S.done, modifiedOn: 1002 + i * 10, modifiedBy: SOC_ADMIN }
       ])
@@ -400,9 +438,14 @@ describe('request chronology ties and authorization', () => {
       allowedLoops: [{ from: S.done, to: S.inProgress }]
     })
     for (const txes of [request, [...request].reverse()]) {
-      const emitted = await dispatchRequest(txes, order.map((i) => [request[i]]), {
-        issues: linkedPair(), rules: [r]
-      })
+      const emitted = await dispatchRequest(
+        txes,
+        order.map((i) => [request[i]]),
+        {
+          issues: linkedPair(),
+          rules: [r]
+        }
+      )
       const legal = txes === request ? [S.review, S.done, S.inProgress] : [S.inProgress, S.done]
       expect(emitted.map((tx) => tx.operations.status)).toEqual(legal)
       expect(emitted.map((tx) => tx.modifiedBy)).toEqual(txes.slice(0, legal.length).map((tx) => tx.modifiedBy))
@@ -410,17 +453,23 @@ describe('request chronology ties and authorization', () => {
     }
   })
 
-  it.each([[0, 1], [1, 0]])('uses each source actor for authorization in dispatch %s,%s', async (first, second) => {
+  it.each([
+    [0, 1],
+    [1, 0]
+  ])('uses each source actor for authorization in dispatch %s,%s', async (first, second) => {
     const request = [
       updateTx(S.review, { modifiedBy: SOC_OUTSIDER, modifiedOn: 1001 }),
       updateTx(S.inProgress, { modifiedBy: SOC_MEMBER, modifiedOn: 1002 })
     ]
     const emitted = await dispatchRequest(request, [[request[first]], [request[second]]], {
-      issues: linkedPair(), rules: [rule()]
+      issues: linkedPair(),
+      rules: [rule()]
     })
     expect(emitted).toHaveLength(1)
     expect(emitted[0]).toMatchObject({
-      operations: { status: S.inProgress }, modifiedBy: SOC_MEMBER, modifiedOn: 1002
+      operations: { status: S.inProgress },
+      modifiedBy: SOC_MEMBER,
+      modifiedOn: 1002
     })
   })
 })
@@ -467,7 +516,7 @@ describe('OnWorkflowRuleMirror', () => {
 
     // A real tracker never emits status 'constructor', but if it did, the
     // trigger must not reach the inherited key and write 'status:injected'.
-    const res = await OnWorkflowRuleMirror([updateTx('constructor' as any)], control)
+    const res = await OnWorkflowRuleMirror([updateTx('constructor')], control)
     expect(res).toHaveLength(0)
   })
 
@@ -614,10 +663,7 @@ describe('OnWorkflowRuleMirror', () => {
       projects: [project({ archived: true })]
     })
 
-    const res = await OnWorkflowRuleMirror(
-      [updateTx(S.review, { modifiedBy: SOC_ADMIN })],
-      control
-    )
+    const res = await OnWorkflowRuleMirror([updateTx(S.review, { modifiedBy: SOC_ADMIN })], control)
     expect(res).toHaveLength(0)
   })
 
@@ -628,10 +674,7 @@ describe('OnWorkflowRuleMirror', () => {
       projects: [project({ archived: true })]
     })
 
-    const res = await OnWorkflowRuleMirror(
-      [updateTx(S.review, { modifiedBy: core.account.System })],
-      control
-    )
+    const res = await OnWorkflowRuleMirror([updateTx(S.review, { modifiedBy: core.account.System })], control)
     expect(res).toHaveLength(0)
   })
 
@@ -642,10 +685,7 @@ describe('OnWorkflowRuleMirror', () => {
       projects: [project({ restricted: true })]
     })
 
-    const res = await OnWorkflowRuleMirror(
-      [updateTx(S.review, { modifiedBy: SOC_ADMIN })],
-      control
-    )
+    const res = await OnWorkflowRuleMirror([updateTx(S.review, { modifiedBy: SOC_ADMIN })], control)
     expect(res).toHaveLength(0)
   })
 
@@ -685,13 +725,21 @@ describe('OnWorkflowRuleMirror', () => {
     expect(res).toHaveLength(0)
   })
 
-  it('is a no-op when the enabled field is not strictly boolean true', async () => {
+  it.each([
+    { enabled: 'yes' },
+    { enabled: 'true' },
+    { enabled: 1 },
+    { enabled: 0 },
+    { enabled: '' },
+    { enabled: {} },
+    { enabled: [] },
+    { enabled: null },
+    { enabled: undefined }
+  ])('is a no-op when the enabled field is not strictly boolean true ($enabled)', async ({ enabled }) => {
     const control = makeControl({
       issues: linkedPair(),
       rules: [rule()],
-      pluginConfigs: [
-        { _id: 'pc:1', _class: core.class.PluginConfiguration, pluginId: workflowRulesId, enabled: 'yes' as any }
-      ]
+      pluginConfigs: [{ _id: 'pc:1', _class: core.class.PluginConfiguration, pluginId: workflowRulesId, enabled }]
     })
 
     const res = await OnWorkflowRuleMirror([updateTx(S.review)], control)
@@ -708,7 +756,7 @@ describe('OnWorkflowRuleMirror', () => {
     const sharedCache = new Map<string, any>()
     const sharedTxes: any[] = []
 
-    const txA1 = updateTx('status:unmapped' as any, {
+    const txA1 = updateTx('status:unmapped', {
       modifiedBy: SOC_MEMBER,
       modifiedOn: 1000
     })
@@ -773,7 +821,7 @@ describe('OnWorkflowRuleMirror', () => {
       forwardMap: { [S.review]: S.done, [S.inProgress]: S.inProgress },
       allowedLoops: [{ from: S.done, to: S.inProgress }]
     })
-    const txA1 = updateTx('status:unmapped' as any, {
+    const txA1 = updateTx('status:unmapped', {
       modifiedBy: SOC_MEMBER,
       modifiedOn: 1000
     })
@@ -849,10 +897,7 @@ describe('OnWorkflowRuleMirror', () => {
       contextCache: sharedCache,
       controlTxes: req1Txes
     })
-    const res1 = await OnWorkflowRuleMirror(
-      req1Txes,
-      ctrl1
-    )
+    const res1 = await OnWorkflowRuleMirror(req1Txes, ctrl1)
     expect(res1).toHaveLength(1)
 
     // Request 2: NEW complete-request array. A stale processed marker
@@ -864,10 +909,7 @@ describe('OnWorkflowRuleMirror', () => {
       contextCache: sharedCache,
       controlTxes: req2Txes
     })
-    const res2 = await OnWorkflowRuleMirror(
-      req2Txes,
-      ctrl2
-    )
+    const res2 = await OnWorkflowRuleMirror(req2Txes, ctrl2)
     expect(res2).toHaveLength(1)
     expect(res2[0]).toMatchObject({ operations: { status: S.todo } })
   })
