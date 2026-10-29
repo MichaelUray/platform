@@ -242,15 +242,18 @@ describe.each([
     expect(target.textContent).toContain(node.attrs?.alt ?? ':missing:')
   })
 
-  it.each([MarkupNodeType.gif, MarkupNodeType.image])('shows a placeholder on an HTTP/decoder image error (%s)', async (type) => {
-    viewer = new Viewer({
-      target,
-      props: { node: { type, attrs: { 'file-id': 'missing', alt: 'Unavailable image' } } }
-    })
-    for (let i = 0; i < 10; i++) await tick()
-    target.querySelector('img')?.dispatchEvent(new Event('error'))
-    await tick()
-    expect(target.querySelector('.broken-image')).not.toBeNull()
-    expect(target.textContent).toContain('Unavailable image')
-  })
+  it.each([MarkupNodeType.gif, MarkupNodeType.image])(
+    'shows a placeholder on an HTTP/decoder image error (%s)',
+    async (type) => {
+      viewer = new Viewer({
+        target,
+        props: { node: { type, attrs: { 'file-id': 'missing', alt: 'Unavailable image' } } }
+      })
+      for (let i = 0; i < 10; i++) await tick()
+      target.querySelector('img')?.dispatchEvent(new Event('error'))
+      await tick()
+      expect(target.querySelector('.broken-image')).not.toBeNull()
+      expect(target.textContent).toContain('Unavailable image')
+    }
+  )
 })

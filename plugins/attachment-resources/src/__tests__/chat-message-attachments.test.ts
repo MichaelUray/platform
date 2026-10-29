@@ -27,13 +27,21 @@ const { shownTranslatedMessagesStore, translatedMessagesStore } = jest.requireAc
   translatedMessagesStore: ReturnType<typeof writable<Map<Ref<Doc>, string>>>
 }>('../../../chunter-resources/src/stores')
 
-jest.mock('@hcengineering/activity-resources', () => ({
-  ActivityMessageTemplate: jest.requireActual('./MessageTemplateStub.svelte').default,
-  editingMessageStore: jest.requireActual('svelte/store').writable(undefined)
-}), { virtual: true })
-jest.mock('@hcengineering/attachment-resources', () => ({
-  AttachmentDocList: jest.requireActual('../components/AttachmentDocList.svelte').default
-}), { virtual: true })
+jest.mock(
+  '@hcengineering/activity-resources',
+  () => ({
+    ActivityMessageTemplate: jest.requireActual('./MessageTemplateStub.svelte').default,
+    editingMessageStore: jest.requireActual('svelte/store').writable(undefined)
+  }),
+  { virtual: true }
+)
+jest.mock(
+  '@hcengineering/attachment-resources',
+  () => ({
+    AttachmentDocList: jest.requireActual('../components/AttachmentDocList.svelte').default
+  }),
+  { virtual: true }
+)
 jest.mock('@hcengineering/contact-resources', () => ({}), { virtual: true })
 jest.mock('@hcengineering/view-resources', () => ({}))
 jest.mock('@hcengineering/ui', () => ({
@@ -51,9 +59,14 @@ jest.mock('../stores', () => ({
   savedAttachmentsStore: jest.requireActual('svelte/store').writable([]),
   loadSavedAttachments: () => {}
 }))
-jest.mock('@hcengineering/emoji', () => ({
-  getParseEmojisFunction: () => undefined, loadParseEmojisFunction: async () => undefined
-}), { virtual: true })
+jest.mock(
+  '@hcengineering/emoji',
+  () => ({
+    getParseEmojisFunction: () => undefined,
+    loadParseEmojisFunction: async () => undefined
+  }),
+  { virtual: true }
+)
 jest.mock('@hcengineering/presentation', () => ({
   __esModule: true,
   default: jest.requireActual('../../../../packages/presentation/src/plugin').default,

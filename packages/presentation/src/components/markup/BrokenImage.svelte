@@ -3,7 +3,10 @@
   export let alt: string | undefined = undefined
 </script>
 
-<span class="broken-image" role="img" aria-label={alt} title={alt}>⚠{#if alt} {alt}{/if}</span>
+<span class="broken-image" role="img" aria-label={alt} title={alt}
+  >⚠{#if alt}
+    {alt}{/if}</span
+>
 
 <style>
   .broken-image {
