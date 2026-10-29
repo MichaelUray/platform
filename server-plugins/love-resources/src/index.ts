@@ -37,7 +37,6 @@ import love, {
   MeetingMinutes,
   MeetingStatus,
   ParticipantInfo,
-  Room,
   RoomAccess,
   RoomInfo,
   UserMeetingInvite
