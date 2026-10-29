@@ -711,7 +711,8 @@ export class MarkdownState implements IState {
     const inner: MarkupMark | undefined = state.marks.length > 0 ? state.marks[state.marks.length - 1] : undefined
     // Code participates in active marks so a run is closed only once, even when
     // the source nodes have different marks. Its text is rendered without escaping.
-    const noEsc = inner !== undefined && inner.type !== MarkupMarkType.code && !(this.marks[inner.type]?.escape ?? false)
+    const noEsc =
+      inner !== undefined && inner.type !== MarkupMarkType.code && !(this.marks[inner.type]?.escape ?? false)
     const len = state.marks.length - (noEsc ? 1 : 0)
 
     this.reorderMixableMarks(state, len)

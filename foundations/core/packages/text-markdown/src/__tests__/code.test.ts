@@ -69,17 +69,26 @@ describe('inline code delimiters', () => {
   }> = [
     {
       name: 'the reviewer example with partial bold',
-      nodes: [{ text: 'a`b', marks: [code, bold] }, { text: 'c', marks: [code] }],
+      nodes: [
+        { text: 'a`b', marks: [code, bold] },
+        { text: 'c', marks: [code] }
+      ],
       markdown: '``a`bc``'
     },
     {
       name: 'the reviewer example with bold in the last node',
-      nodes: [{ text: 'a`b', marks: [code] }, { text: 'c', marks: [code, bold] }],
+      nodes: [
+        { text: 'a`b', marks: [code] },
+        { text: 'c', marks: [code, bold] }
+      ],
       markdown: '``a`bc``'
     },
     {
       name: 'a link inside code',
-      nodes: [{ text: 'a``b', marks: [code, link] }, { text: 'c', marks: [code] }],
+      nodes: [
+        { text: 'a``b', marks: [code, link] },
+        { text: 'c', marks: [code] }
+      ],
       markdown: '```a``bc```'
     },
     {
@@ -93,12 +102,18 @@ describe('inline code delimiters', () => {
     },
     {
       name: 'backticks only in the last node',
-      nodes: [{ text: 'a', marks: [code] }, { text: 'b``c', marks: [code, bold] }],
+      nodes: [
+        { text: 'a', marks: [code] },
+        { text: 'b``c', marks: [code, bold] }
+      ],
       markdown: '```ab``c```'
     },
     {
       name: 'code staying open across nested marks until paragraph end',
-      nodes: [{ text: 'a`b', marks: [code, bold] }, { text: 'c', marks: [code, italic] }],
+      nodes: [
+        { text: 'a`b', marks: [code, bold] },
+        { text: 'c', marks: [code, italic] }
+      ],
       markdown: '``a`bc``'
     },
     {
@@ -108,27 +123,42 @@ describe('inline code delimiters', () => {
     },
     {
       name: 'a leading backtick needing padding on both sides',
-      nodes: [{ text: '`a', marks: [bold, code] }, { text: 'b', marks: [code] }],
+      nodes: [
+        { text: '`a', marks: [bold, code] },
+        { text: 'b', marks: [code] }
+      ],
       markdown: '`` `ab ``'
     },
     {
       name: 'a trailing backtick needing padding on both sides',
-      nodes: [{ text: 'a', marks: [code, link] }, { text: 'b`', marks: [code] }],
+      nodes: [
+        { text: 'a', marks: [code, link] },
+        { text: 'b`', marks: [code] }
+      ],
       markdown: '`` ab` ``'
     },
     {
       name: 'an internal backtick at an outer-mark boundary',
-      nodes: [{ text: 'a`', marks: [bold, code] }, { text: 'b', marks: [code] }],
+      nodes: [
+        { text: 'a`', marks: [bold, code] },
+        { text: 'b', marks: [code] }
+      ],
       markdown: '``a`b``'
     },
     {
       name: 'a backtick run crossing a node boundary',
-      nodes: [{ text: 'a``', marks: [code, bold] }, { text: '`b', marks: [code] }],
+      nodes: [
+        { text: 'a``', marks: [code, bold] },
+        { text: '`b', marks: [code] }
+      ],
       markdown: '````a```b````'
     },
     {
       name: 'spaces at both ends of the whole run',
-      nodes: [{ text: ' a', marks: [bold, code] }, { text: 'b ', marks: [code, link] }],
+      nodes: [
+        { text: ' a', marks: [bold, code] },
+        { text: 'b ', marks: [code, link] }
+      ],
       markdown: '`  ab  `'
     }
   ]
@@ -167,12 +197,14 @@ describe('inline code delimiters', () => {
     const markdown = markupToMarkdown(markup)
 
     expect(markdown).toBe('````` `a```` `````' + separator + '``b`cd`` after')
-    expect(markdownToMarkup(markdown)).toEqual(inlineContent([
-      { type: MarkupNodeType.text, text: '`a````', marks: [code] },
-      between,
-      { type: MarkupNodeType.text, text: 'b`cd', marks: [code] },
-      after
-    ]))
+    expect(markdownToMarkup(markdown)).toEqual(
+      inlineContent([
+        { type: MarkupNodeType.text, text: '`a````', marks: [code] },
+        between,
+        { type: MarkupNodeType.text, text: 'b`cd', marks: [code] },
+        after
+      ])
+    )
   })
 
   const nonTextNodes: Array<{
@@ -224,12 +256,9 @@ describe('inline code delimiters', () => {
         const markdown = markupToMarkdown(markup)
 
         expect(markdown).toBe(beforeMarkdown + separator + afterMarkdown + suffix)
-        expect(markdownToMarkup(markdown)).toEqual(inlineContent([
-          textNode(before.join('')),
-          parsed,
-          textNode(after.join('')),
-          ...trailing
-        ]))
+        expect(markdownToMarkup(markdown)).toEqual(
+          inlineContent([textNode(before.join('')), parsed, textNode(after.join('')), ...trailing])
+        )
         expect(JSON.stringify(markup)).toBe(original)
       })
     })
@@ -245,10 +274,12 @@ describe('inline code delimiters', () => {
     const markdown = markupToMarkdown(markup)
 
     expect(markdown).toBe('```a``b``` between 🙂')
-    expect(markdownToMarkup(markdown)).toEqual(inlineContent([
-      { type: MarkupNodeType.text, text: 'a``b', marks: [code] },
-      { type: MarkupNodeType.text, text: ' between 🙂', marks: [] }
-    ]))
+    expect(markdownToMarkup(markdown)).toEqual(
+      inlineContent([
+        { type: MarkupNodeType.text, text: 'a``b', marks: [code] },
+        { type: MarkupNodeType.text, text: ' between 🙂', marks: [] }
+      ])
+    )
   })
 
   it.each([bold, link])('preserves a shared outer $type mark around the whole code span', (outer) => {
@@ -263,7 +294,9 @@ describe('inline code delimiters', () => {
     const parsed = markdownToMarkup(markdown)
     expect(parsed.content?.[0].content).toHaveLength(1)
     expect(parsed.content?.[0].content?.[0].text).toBe('`ab`')
-    expect(parsed.content?.[0].content?.[0].marks).toEqual(expect.arrayContaining([code, expect.objectContaining(outer)]))
+    expect(parsed.content?.[0].content?.[0].marks).toEqual(
+      expect.arrayContaining([code, expect.objectContaining(outer)])
+    )
     expect(parsed.content?.[0].content?.[0].marks).toHaveLength(2)
   })
 
@@ -276,9 +309,9 @@ describe('inline code delimiters', () => {
     const markdown = markupToMarkdown(markup)
 
     expect(markdown).toBe('**`  ab  `**')
-    expect(markdownToMarkup(markdown)).toEqual(inlineContent([
-      { type: MarkupNodeType.text, text: ' ab ', marks: [{ ...bold, attrs: { marker: '**' } }, code] }
-    ]))
+    expect(markdownToMarkup(markdown)).toEqual(
+      inlineContent([{ type: MarkupNodeType.text, text: ' ab ', marks: [{ ...bold, attrs: { marker: '**' } }, code] }])
+    )
   })
 
   it('closes code delimiters before unmarked text', () => {
