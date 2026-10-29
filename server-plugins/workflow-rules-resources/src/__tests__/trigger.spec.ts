@@ -212,8 +212,8 @@ function makeControl (opts: WorldOptions = {}): any {
   // Per-root-tx (per-request) store. Shared across invocations within one
   // request by passing the same Map in via opts.contextCache.
   const contextCache = opts.contextCache ?? new Map<string, any>()
-  // Request identity. The trigger uses `control.txes` reference equality
-  // to detect a new request on a reused `SessionData` (wrapPipeline case).
+  // Request identity. The trigger tracks each `control.txes` array on a
+  // reused `SessionData` (wrapPipeline case).
   const txes = opts.controlTxes
 
   return { ctx, findAll, modelDb, txFactory, hierarchy, contextCache, txes }
@@ -302,6 +302,76 @@ describe.each([false, true])('request chronology (allowedLoops=%s)', (withLoops)
 })
 
 describe('request chronology ties and authorization', () => {
+  it('retries the complete request in a later group after evaluation throws', async () => {
+    const request = [
+      updateTx(S.inProgress, { modifiedBy: SOC_MEMBER, modifiedOn: 1001 }),
+      updateTx(S.review, { modifiedBy: SOC_ADMIN, modifiedOn: 1002 })
+    ]
+    const control = makeControl({ issues: linkedPair(), rules: [rule()], controlTxes: request })
+    const findAll = control.findAll.getMockImplementation()
+    control.findAll.mockImplementation(async (...args: unknown[]) => {
+      // Fail on the second source lookup, after the first mirror is queued.
+      if (args[1] === tracker.class.Issue && (args[2] as Any)._id === 'issue:a1' &&
+          control.txFactory.createTxUpdateDoc.mock.calls.length === 1) {
+        throw new Error('source lookup failed')
+      }
+      return await findAll(...args)
+    })
+    jest.spyOn(control.txFactory, 'createTxUpdateDoc')
+
+    await expect(OnWorkflowRuleMirror([request[0]], control)).rejects.toThrow('source lookup failed')
+    expect(control.txFactory.createTxUpdateDoc).toHaveBeenCalledTimes(1)
+    control.findAll.mockImplementation(findAll)
+
+    const emitted = await OnWorkflowRuleMirror([request[1]], control)
+    expect(emitted.map((tx) => ({
+      status: tx.operations.status, modifiedOn: tx.modifiedOn, modifiedBy: tx.modifiedBy
+    }))).toEqual([
+      { status: S.inProgress, modifiedOn: 1001, modifiedBy: SOC_MEMBER },
+      { status: S.done, modifiedOn: 1002, modifiedBy: SOC_ADMIN }
+    ])
+    request.push(...emitted)
+    expect(await OnWorkflowRuleMirror([request[0]], control)).toEqual([])
+  })
+
+  it('emits each interleaved request exactly once across multiple actor groups on a shared session', async () => {
+    const contextCache = new Map<string, unknown>()
+    const controls = [0, 1].map((i) => makeControl({
+      issues: linkedPair(),
+      rules: [rule()],
+      contextCache,
+      controlTxes: [
+        updateTx(S.inProgress, { modifiedBy: SOC_MEMBER, modifiedOn: 1001 + i * 10 }),
+        updateTx(S.review, { modifiedBy: SOC_ADMIN, modifiedOn: 1002 + i * 10 })
+      ]
+    }))
+    const requests = controls.map((control) => [...control.txes])
+    const emitted: Any[][] = [[], []]
+
+    // Both first groups enter before either completes, then the second
+    // groups revisit their own arrays with the other request in between.
+    for (let group = 0; group < 2; group++) {
+      const results = await Promise.all(controls.map(async (control, i) => {
+        control.txFactory = new TxFactory(requests[i][group].modifiedBy, true)
+        return await OnWorkflowRuleMirror([requests[i][group]], control)
+      }))
+      results.forEach((result, i) => {
+        if (group === 1) expect(result).toEqual([])
+        emitted[i].push(...result)
+        controls[i].txes.push(...result)
+      })
+    }
+
+    emitted.forEach((result, i) => {
+      expect(result.map((tx) => ({
+        status: tx.operations.status, modifiedOn: tx.modifiedOn, modifiedBy: tx.modifiedBy
+      }))).toEqual([
+        { status: S.inProgress, modifiedOn: 1001 + i * 10, modifiedBy: SOC_MEMBER },
+        { status: S.done, modifiedOn: 1002 + i * 10, modifiedBy: SOC_ADMIN }
+      ])
+    })
+  })
+
   it('evaluates the request only once even when every move is refused or a no-op', async () => {
     const request = [
       updateTx(S.review, { modifiedBy: SOC_ADMIN, modifiedOn: 1001 }),
@@ -763,12 +833,11 @@ describe('OnWorkflowRuleMirror', () => {
     expect(combined2.map((t: any) => t.modifiedOn)).toEqual([1001, 1002])
   })
 
-  it('resets its per-request maps when control.txes identity changes (wrapPipeline reuse)', async () => {
+  it('evaluates independent control.txes arrays separately (wrapPipeline reuse)', async () => {
     // wrapPipeline reuses one SessionData across successive pipeline.tx()
-    // calls, so the contextCache is reused too. The trigger must reset
-    // its per-request maps when the request identity changes, or a
-    // mirror queued in request 1 would still block an unrelated move in
-    // request 2.
+    // calls, so the contextCache is reused too. The trigger must track
+    // each request identity independently, or a mirror queued in request 1
+    // would still block an unrelated move in request 2.
     const r = rule({ forwardMap: { [S.review]: S.done, [S.todo]: S.todo } })
     const sharedCache = new Map<string, any>()
 

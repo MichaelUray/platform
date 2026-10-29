@@ -28,19 +28,13 @@ import { isRegression } from './logic'
 export { isRegression } from './logic'
 
 /**
- * Cache keys for `control.contextCache`. The pipeline normally scopes
- * this map to one root transaction (one request), so stashing
- * per-request state here lets later actor groups skip an already
- * evaluated request. Some workspace maintenance paths (notably
- * `wrapPipeline()`) deliberately reuse the `SessionData` across
- * successive `pipeline.tx()` calls; to stay correct on those paths the
- * trigger also stamps a sentinel at `REQUEST_SENTINEL_KEY` with the
- * current `control.txes` reference and clears the request state on entry when
- * that identity changes.
+ * Cache key for processed request arrays in `control.contextCache`.
+ * The pipeline normally scopes this map to one root transaction (one
+ * request), but `wrapPipeline()` can reuse the `SessionData` across
+ * concurrent `pipeline.tx()` calls. A WeakSet tracks each request's
+ * `control.txes` identity independently without retaining finished arrays.
  */
 const PROCESSED_CACHE_KEY = 'workflow-rules.processed'
-const AUTHZ_CACHE_KEY = 'workflow-rules.targetSpaceAuthz'
-const REQUEST_SENTINEL_KEY = 'workflow-rules.requestSentinel'
 
 /**
  * Trigger body for `OnWorkflowRuleMirror`. Fires on `TxUpdateDoc` whose
@@ -50,8 +44,8 @@ const REQUEST_SENTINEL_KEY = 'workflow-rules.requestSentinel'
  *
  * Cascade behavior (one hop). The trigger skips updates whose own tx `space`
  * is `core.space.DerivedTx`, so a mirror update produced by this trigger
- * cannot trigger another mirror. That also means status writes emitted by
- * any other server trigger are not mirrored. For v1 this is the intended
+ * cannot trigger another mirror. Derived status writes emitted by other
+ * server triggers are also excluded. For v1 this is the intended
  * one hop semantics; multi hop would want a cascade-scoped visited set and
  * a hard depth bound instead. See `docs/workflow-rules/DESIGN.md`.
  *
@@ -80,18 +74,17 @@ const REQUEST_SENTINEL_KEY = 'workflow-rules.requestSentinel'
  * Conflict ordering. The first invocation evaluates the complete request
  * (`control.txes`) in `modifiedOn` order, with request-array order breaking
  * ties. A local pending-status map keyed by counterpart starts from the
- * persisted status and advances only after an authorized, legal mirror is
- * emitted. No-op and refused candidates are evaluated at their place in
- * that sequence, so allowedLoops and intermediate moves have the same
+ * stored (post-request) status and advances only after an authorized, legal
+ * mirror is emitted. No-op and refused candidates are evaluated at their
+ * place in that sequence, so allowedLoops and intermediate moves have the same
  * result regardless of the dispatcher's actor-group visit order. Each
  * emitted update retains its source actor and timestamp.
  *
- * A processed marker in `control.contextCache` makes later actor groups
- * skip this request. The cache normally belongs to one root transaction,
- * but workspace maintenance paths (notably `wrapPipeline()`) can share a
- * `SessionData` across successive `pipeline.tx()` calls. The current
- * `control.txes` reference remains the request sentinel; when it changes,
- * the processed marker and authorization cache are cleared.
+ * A WeakSet in `control.contextCache` makes later actor groups skip each
+ * successfully evaluated request. Request arrays are tracked independently
+ * even when concurrent `pipeline.tx()` calls share a `SessionData` through
+ * `wrapPipeline()`. A failed evaluation leaves the request unmarked so a
+ * later group can retry it. Authorization is memoized within each evaluation.
  *
  * Plugin enable. If the `PluginConfiguration` row for this plugin is
  * disabled in the workspace model, the whole trigger is a no-op. The
@@ -103,18 +96,9 @@ const REQUEST_SENTINEL_KEY = 'workflow-rules.requestSentinel'
 export async function OnWorkflowRuleMirror (_txes: Tx[], control: TriggerControl): Promise<Tx[]> {
   if (!isPluginEnabled(control)) return []
 
-  // The context cache is normally per-root-tx. Some workspace paths
-  // reuse the SessionData across pipeline.tx() calls, so reset the
-  // request-scoped state when the `control.txes` identity changes.
-  const requestSentinel = control.txes
-  if (control.contextCache.get(REQUEST_SENTINEL_KEY) !== requestSentinel) {
-    control.contextCache.delete(PROCESSED_CACHE_KEY)
-    control.contextCache.delete(AUTHZ_CACHE_KEY)
-    control.contextCache.set(REQUEST_SENTINEL_KEY, requestSentinel)
-  }
-
-  if (control.contextCache.get(PROCESSED_CACHE_KEY) === true) return []
-  control.contextCache.set(PROCESSED_CACHE_KEY, true)
+  const processed: WeakSet<Tx[]> = control.contextCache.get(PROCESSED_CACHE_KEY) ?? new WeakSet()
+  control.contextCache.set(PROCESSED_CACHE_KEY, processed)
+  if (processed.has(control.txes)) return []
 
   // Snapshot the full request across actor groups. Stable sort preserves
   // request-array order for equal timestamps, independently of group order.
@@ -122,9 +106,7 @@ export async function OnWorkflowRuleMirror (_txes: Tx[], control: TriggerControl
   const result: Tx[] = []
   const pendingStatuses = new Map<Ref<Issue>, Ref<IssueStatus>>()
   // A request can contain multiple actors, so memoize by actor+space.
-  const targetSpaceAuthz: Map<string, boolean> =
-    control.contextCache.get(AUTHZ_CACHE_KEY) ?? new Map()
-  control.contextCache.set(AUTHZ_CACHE_KEY, targetSpaceAuthz)
+  const targetSpaceAuthz = new Map<string, boolean>()
 
   for (const actualTx of sorted) {
     if (actualTx._class !== core.class.TxUpdateDoc) continue
@@ -238,6 +220,7 @@ export async function OnWorkflowRuleMirror (_txes: Tx[], control: TriggerControl
       pendingStatuses.set(counterpart._id, target)
     }
   }
+  processed.add(control.txes)
   return result
 }
 

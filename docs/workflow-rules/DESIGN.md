@@ -191,7 +191,7 @@ The trigger body:
     including candidates from every dispatcher actor group, once in
     `modifiedOn` order. Equal timestamps retain their order in the request
     array via the stable sort. A local pending-status map keyed by counterpart
-    starts from the persisted status. For each candidate, equality,
+    starts from the stored (post-request) status. For each candidate, equality,
     regression/`allowedLoops`, and actor authorization checks run against the
     effective status; only an emitted move advances that status. No-op and
     refused candidates are considered at their chronological position rather
@@ -203,16 +203,19 @@ The trigger body:
     stable sort in `foundations/server/packages/middleware/src/triggers.ts`
     preserves that sequence, including timestamp ties.
 
-    A processed marker in `control.contextCache` makes later group visits skip
-    the request, even if the first visit emitted nothing. The authorization
-    memo remains keyed by actor and target project. The cache normally belongs
-    to one root transaction (one request). Workspace paths (notably
-    `wrapPipeline()`) can share one `SessionData` across successive
-    `pipeline.tx()` calls, so the trigger retains the current `control.txes`
-    reference as a request sentinel and clears the processed marker and
-    authorization cache when that identity changes. Appending derived outputs
-    to the same array within a request does not reset it. Derived updates
-    remain excluded from mirroring.
+    A WeakSet in `control.contextCache` records each `control.txes` array only
+    after successful evaluation, just before returning the result, so later
+    group visits skip the request even if it emitted nothing, while a thrown
+    evaluation can be retried by the next group. Workspace paths (notably
+    `wrapPipeline()`) can share one `SessionData` across concurrent
+    `pipeline.tx()` calls; tracking each array independently prevents those
+    requests from resetting each other's markers without retaining finished
+    arrays. Appending derived outputs to the same array does not reset its
+    marker. The authorization memo is local to each evaluation and keyed by
+    actor and target project. Derived updates remain excluded from mirroring.
+    Non-derived outputs of earlier triggers in `control.txes` are evaluated
+    in this pass, and their later derived pass is then a no-op because the
+    counterpart already has the target status.
 11. The whole trigger is a no-op unless the plugin's `PluginConfiguration`
     row has `enabled: true`. Missing, malformed, or unreadable config
     fails closed. The feature ships disabled in `models/all`; an Owner
