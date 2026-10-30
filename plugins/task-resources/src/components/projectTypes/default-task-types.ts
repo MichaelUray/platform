@@ -31,7 +31,6 @@ export function getDefaultTaskTypes (client: TxOperations, descriptor: ProjectTy
       statusClass: template.statusClass,
       statusCategories: [...template.statusCategories],
       allowedAsChildOf: template.allowedAsChildOf?.map((id) => (id === template._id ? taskId : id)),
-      icon: template.icon,
       color: template.color,
       factory
     }

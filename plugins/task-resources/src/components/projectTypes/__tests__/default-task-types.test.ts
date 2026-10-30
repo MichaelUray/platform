@@ -24,6 +24,7 @@ const statuses = [task.statusCategory.UnStarted, task.statusCategory.Active, tas
       name: ['Backlog', 'In Progress', 'Done'][index],
       category,
       color: index,
+      description: `Status ${index}`,
       ofAttribute: 'test:attribute:IssueStatus'
     }) as unknown as Status
 )
@@ -41,7 +42,8 @@ const template = {
   statusCategories: statuses.map((status) => status.category),
   statusClass: issueStatusClass,
   allowedAsChildOf: [templateId],
-  icon: 'test:icon:Issue'
+  icon: 'test:icon:Issue',
+  color: 7
 } as unknown as TaskType
 
 interface TestContext {
@@ -89,21 +91,29 @@ describe('default project task types', () => {
       kind: 'both',
       statusClass: issueStatusClass,
       statusCategories: template.statusCategories,
-      factory: statuses.map(({ name, category, color, ofAttribute }) => ({ name, category, color, ofAttribute }))
+      color: template.color,
+      factory: statuses.map(({ name, category, color, ofAttribute, description }) => ({
+        name,
+        category,
+        color,
+        ofAttribute,
+        description
+      }))
     })
     expect(issue._id).not.toBe(templateId)
     expect(issue.allowedAsChildOf).toEqual([issue._id])
     expect(issue.targetClass).toBeUndefined()
+    expect(issue.icon).toBeUndefined()
     expect(getDefaultTaskTypes(client, descriptor)[0]._id).not.toBe(issue._id)
     expect(template.allowedAsChildOf).toEqual([templateId])
   })
 
-  it.each([true, false])('creates a parent-local Issue kind and status links (classic=%s)', async (classic) => {
+  it('creates a parent-local Issue kind and status links using the real createProjectType', async () => {
     const { client, documents, createMixin } = setup()
     const tasks = getDefaultTaskTypes(client, descriptor)
     await createProjectType(
       client,
-      { name: 'Custom', description: '', descriptor: descriptor._id, tasks: [], roles: 0, classic },
+      { name: 'Custom', description: '', descriptor: descriptor._id, tasks: [], roles: 0, classic: true },
       tasks,
       projectId
     )
@@ -132,25 +142,39 @@ describe('default project task types', () => {
     )
   })
 
-  it('creates missing workflow statuses and links them to the new task type', async () => {
+  it('returns independent workflow data without modifying the template or its statuses', () => {
+    const { client } = setup()
+    const [issue] = getDefaultTaskTypes(client, descriptor)
+    const [otherIssue] = getDefaultTaskTypes(client, descriptor)
+
+    issue.statusCategories.pop()
+    issue.allowedAsChildOf?.pop()
+    issue.factory[0].name = 'Changed'
+
+    expect(otherIssue.statusCategories).toEqual(template.statusCategories)
+    expect(otherIssue.allowedAsChildOf).toEqual([otherIssue._id])
+    expect(otherIssue.factory[0].name).toBe(statuses[0].name)
+    expect(template.statusCategories).toHaveLength(statuses.length)
+    expect(template.allowedAsChildOf).toEqual([templateId])
+    expect(statuses[0].name).toBe('Backlog')
+  })
+
+  it('remaps only self references in allowed child types', () => {
     const { client, documents } = setup()
-    const tasks = getDefaultTaskTypes(client, descriptor)
-    for (const status of statuses) documents.delete(status._id)
-    await createProjectType(
-      client,
-      { name: 'Custom', description: '', descriptor: descriptor._id, tasks: [], roles: 0, classic: true },
-      tasks,
-      projectId
-    )
-    const issue = documents.get(tasks[0]._id) as TaskType
-    expect(issue.statuses.map((id) => documents.get(id))).toEqual(
-      statuses.map(({ name, category, color, ofAttribute }) =>
-        expect.objectContaining({ _class: issueStatusClass, name, category, color, ofAttribute })
-      )
-    )
-    expect((documents.get(projectId) as ProjectType).statuses).toEqual(
-      issue.statuses.map((_id) => ({ _id, taskType: issue._id }))
-    )
+    const otherType = 'test:taskType:Other' as Ref<TaskType>
+    const restrictedTemplate: TaskType = { ...template, allowedAsChildOf: [templateId, otherType] }
+    documents.set(templateId, restrictedTemplate)
+
+    const [issue] = getDefaultTaskTypes(client, descriptor)
+    expect(issue.allowedAsChildOf).toEqual([issue._id, otherType])
+  })
+
+  it('preserves an unrestricted child configuration', () => {
+    const { client, documents } = setup()
+    const unrestrictedTemplate: TaskType = { ...template, allowedAsChildOf: undefined }
+    documents.set(templateId, unrestrictedTemplate)
+
+    expect(getDefaultTaskTypes(client, descriptor)[0].allowedAsChildOf).toBeUndefined()
   })
 
   it('keeps descriptors without a default task type empty', () => {
@@ -158,13 +182,19 @@ describe('default project task types', () => {
     expect(getDefaultTaskTypes(client, { ...descriptor, defaultTaskType: undefined })).toEqual([])
   })
 
-  it('fails before writing a project type if the configured template or its statuses are missing', () => {
+  it('fails before writing a project type if the configured template is missing', () => {
     const { client, documents, createDoc } = setup()
     documents.delete(templateId)
-    expect(() => getDefaultTaskTypes(client, descriptor)).toThrow()
-    documents.set(templateId, template)
+    expect(() => getDefaultTaskTypes(client, descriptor)).toThrow(`Default task type not found: ${templateId}`)
+    expect(createDoc).not.toHaveBeenCalled()
+  })
+
+  it('fails before writing a project type if a configured status is missing', () => {
+    const { client, documents, createDoc } = setup()
     documents.delete(statuses[0]._id)
-    expect(() => getDefaultTaskTypes(client, descriptor)).toThrow()
+    expect(() => getDefaultTaskTypes(client, descriptor)).toThrow(
+      `Default task type status not found: ${statuses[0]._id}`
+    )
     expect(createDoc).not.toHaveBeenCalled()
   })
 })
