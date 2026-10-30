@@ -66,8 +66,6 @@ import { markupToText, stripTags } from '@hcengineering/text-core'
 
 import { OnInboxNotificationCreate, PushNotificationsHandler } from './push'
 import {
-  AvailableProvidersCache,
-  AvailableProvidersCacheKey,
   Content,
   ContextsCache,
   ContextsCacheKey,
@@ -85,6 +83,7 @@ import {
   getTextPresenter,
   isMixinTx,
   isShouldNotifyTx,
+  cacheNotificationProviderDecision,
   isUserEmployeeInFieldValueTypeMatch,
   mentionTypeMatch,
   messageToMarkup,
@@ -134,10 +133,7 @@ export async function getCommonNotificationTxes (
   )
 
   if (notificationTx !== undefined) {
-    const availableProviders: AvailableProvidersCache =
-      control.contextCache.get(AvailableProvidersCacheKey) ?? new Map()
-    availableProviders.set(notificationTx.objectId, Array.from(notifyResult.keys()))
-    control.contextCache.set(AvailableProvidersCacheKey, availableProviders)
+    cacheNotificationProviderDecision(control, notificationTx.objectId, notifyResult)
   }
 
   return res
@@ -643,12 +639,7 @@ export async function getNotificationTxes (
       )
 
       if (notificationTx !== undefined) {
-        const current: AvailableProvidersCache = control.contextCache.get(AvailableProvidersCacheKey) ?? new Map()
-        const providers = Array.from(notifyResult.keys())
-        if (providers.length > 0) {
-          current.set(notificationTx.objectId, providers)
-          control.contextCache.set('AvailableNotificationProviders', current)
-        }
+        cacheNotificationProviderDecision(control, notificationTx.objectId, notifyResult)
       }
     } else {
       const context = getDocNotifyContext(control, docNotifyContexts, message.attachedTo, receiver.account)

@@ -61,6 +61,7 @@ const ISSUE = 'issue' as Ref<Doc>
 const DUE_DATE_TYPE = 'tracker:notification:Issue_dueDate'
 const SUMMARY_TYPE = 'tracker:ids:DependencyShiftedNotification'
 const CACHE_KEY = 'AvailableNotificationProviders'
+const SUPPRESSED_KEY = 'notification:provider-suppressions'
 
 function makeNotification (id: string, type: string): TxCreateDoc<InboxNotification> {
   return new TxFactory(core.account.System).createTxCreateDoc(
@@ -105,6 +106,7 @@ describe('NotificationsHandler', () => {
     const contextCache = new Map([
       [CACHE_KEY, new Map([[dueDate.objectId, [notification.providers.InboxNotificationProvider]]])]
     ])
+    contextCache.set(SUPPRESSED_KEY, new Map([[dueDate.objectId, [gmail.providers.EmailNotificationProvider]]]))
     const fetchMock = jest.fn().mockResolvedValue({ ok: true, statusText: 'OK' })
     globalThis.fetch = fetchMock
     const control = {
@@ -125,5 +127,48 @@ describe('NotificationsHandler', () => {
       to: [EMAIL]
     })
     expect(mockGetAllowedProviders).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['export:notification:ImportedDocumentsNotification', 'notification'],
+    ['tracker:notification:Issue_assignee', 'object'],
+    ['notification:ids:MentionNotificationType', 'empty'],
+    [DUE_DATE_TYPE, 'notification'],
+    [SUMMARY_TYPE, 'object']
+  ])('keeps the settings fallback for unmarked %s with %s cache', async (type, cacheKind) => {
+    const tx = makeNotification('ordinary', type)
+    const key = cacheKind === 'object' ? tx.attributes.objectId : tx.objectId
+    const cache = new Map(cacheKind === 'empty' ? [] : [[key, [notification.providers.InboxNotificationProvider]]])
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, statusText: 'OK' })
+    globalThis.fetch = fetchMock
+    const control = {
+      ctx: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+      contextCache: new Map([[CACHE_KEY, cache]]),
+      lowLevel: { rawFindAll: jest.fn().mockResolvedValue([{ value: EMAIL }]) },
+      findAll: jest.fn().mockResolvedValue([{ _id: ISSUE, _class: core.class.Doc }]),
+      hierarchy: { isDerived: (clazz: unknown, parent: unknown) => clazz === parent },
+      modelDb: { getObject: jest.fn() }
+    } as unknown as TriggerControl
+
+    const resources = await gmailResources()
+    await resources.trigger.NotificationsHandler([tx], control)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(mockGetAllowedProviders).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a settings denial for an unmarked notification', async () => {
+    mockGetAllowedProviders.mockReturnValue([])
+    const tx = makeNotification('denied', 'export:notification:ImportedDocumentsNotification')
+    const fetchMock = jest.fn()
+    globalThis.fetch = fetchMock
+    const control = {
+      ctx: { error: jest.fn(), info: jest.fn(), warn: jest.fn() },
+      contextCache: new Map(),
+      modelDb: { getObject: jest.fn() }
+    } as unknown as TriggerControl
+    const resources = await gmailResources()
+    await resources.trigger.NotificationsHandler([tx], control)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

@@ -32,8 +32,7 @@ import core, {
   type TxUpdateDoc,
   type TxRemoveDoc,
   type TxMixin,
-  type Mixin,
-  isServerOnlyMetaKey
+  type Mixin
 } from '@hcengineering/core'
 import platform, { PlatformError, Severity, Status } from '@hcengineering/platform'
 import {
@@ -92,13 +91,6 @@ export class NormalizeTxMiddleware extends BaseMiddleware implements Middleware 
     return true
   }
 
-  private normalizeMeta (
-    meta: Record<string, string | number | boolean> | undefined
-  ): Record<string, string | number | boolean> | undefined {
-    if (meta === undefined) return undefined
-    return Object.fromEntries(Object.entries(meta).filter(([key]) => !isServerOnlyMetaKey(key)))
-  }
-
   private parseBaseTx (source: unknown): ExplicitTx<Tx> | undefined {
     if (source == null || typeof source !== 'object') {
       return undefined
@@ -129,7 +121,7 @@ export class NormalizeTxMiddleware extends BaseMiddleware implements Middleware 
       createdBy: createdBy as PersonId | undefined,
       createdOn,
       objectSpace: objectSpace as Ref<Space>,
-      meta: this.normalizeMeta(meta)
+      meta
     }
     return baseTx
   }

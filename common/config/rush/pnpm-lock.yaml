@@ -33981,9 +33981,6 @@ importers:
       '@hcengineering/core':
         specifier: workspace:^0.7.26
         version: link:../../foundations/core/packages/core
-      '@hcengineering/gmail':
-        specifier: workspace:^0.7.0
-        version: link:../../plugins/gmail
       '@hcengineering/notification':
         specifier: workspace:^0.7.0
         version: link:../../plugins/notification
@@ -34005,9 +34002,6 @@ importers:
       '@hcengineering/text-core':
         specifier: workspace:^0.7.19
         version: link:../../foundations/core/packages/text-core
-      '@hcengineering/tracker':
-        specifier: workspace:^0.7.0
-        version: link:../../plugins/tracker
       '@hcengineering/view':
         specifier: workspace:^0.7.0
         version: link:../../plugins/view
@@ -35367,6 +35361,9 @@ importers:
       '@hcengineering/core':
         specifier: workspace:^0.7.26
         version: link:../../foundations/core/packages/core
+      '@hcengineering/gmail':
+        specifier: workspace:^0.7.0
+        version: link:../../plugins/gmail
       '@hcengineering/login':
         specifier: workspace:^0.7.0
         version: link:../../plugins/login
@@ -35404,6 +35401,9 @@ importers:
         specifier: workspace:^0.7.0
         version: link:../../plugins/workbench
     devDependencies:
+      '@hcengineering/middleware':
+        specifier: workspace:^0.7.23
+        version: link:../../foundations/server/packages/middleware
       '@hcengineering/platform-rig':
         specifier: workspace:^0.7.21
         version: link:../../foundations/utils/packages/platform-rig

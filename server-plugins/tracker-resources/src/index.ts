@@ -32,7 +32,13 @@ import core, {
   TxUpdateDoc,
   WithLookup
 } from '@hcengineering/core'
-import notification, { DocNotifyContext, NotificationContent } from '@hcengineering/notification'
+import gmail from '@hcengineering/gmail'
+import notification, {
+  DocNotifyContext,
+  NotificationContent,
+  NOTIFICATION_PROVIDER_COVERAGE,
+  type NotificationProviderCoverageMap
+} from '@hcengineering/notification'
 import { getMetadata, IntlString } from '@hcengineering/platform'
 import serverCore, { TriggerControl } from '@hcengineering/server-core'
 import { getAccountBySocialId } from '@hcengineering/server-contact'
@@ -40,7 +46,6 @@ import { NOTIFICATION_BODY_SIZE } from '@hcengineering/server-notification'
 import { stripTags } from '@hcengineering/text-core'
 import tracker, {
   Component,
-  dependencyShiftEmailRecipientsMeta,
   type DependencyShiftedNotification,
   type DependencyShiftRequest,
   groupShiftsByRecipient,
@@ -789,8 +794,6 @@ export async function OnDependencyShiftRequest (txes: Tx[], control: TriggerCont
     const spaces = await resolveShiftRecipientSpaces(control, Array.from(bundles.keys()))
     if (spaces.size === 0) continue
 
-    const recipientsByIssue = new Map<Ref<Issue>, Set<AccountUuid>>()
-
     for (const [recipient, recipientShifts] of bundles) {
       const space = spaces.get(recipient)
       if (space === undefined) continue
@@ -848,30 +851,38 @@ export async function OnDependencyShiftRequest (txes: Tx[], control: TriggerCont
         shiftedIssues: recipientShifts,
         cascadeToken
       }
-      result.push(control.txFactory.createTxCreateDoc(tracker.class.DependencyShiftedNotification, space, notifData))
+      const summaryTx = control.txFactory.createTxCreateDoc(tracker.class.DependencyShiftedNotification, space, notifData)
+      result.push(summaryTx)
 
-      for (const shifted of recipientShifts) {
-        const recipients = recipientsByIssue.get(shifted.issueId) ?? new Set<AccountUuid>()
-        recipients.add(recipient)
-        recipientsByIssue.set(shifted.issueId, recipients)
-      }
-    }
+      // Coverage belongs to this dedicated summary, never to another transaction's meta.
+      // Consumers require the summary tx in their explicit input (syncResult), so the
+      // order of transactions and of sync triggers cannot change the decision.
+      const coverage: NotificationProviderCoverageMap =
+        control.contextCache.get(NOTIFICATION_PROVIDER_COVERAGE) ?? new Map()
+      const shiftedIds = new Set(recipientShifts.map((shifted) => shifted.issueId))
+      for (const sourceTx of control.txes) {
+        if (
+          sourceTx._class !== core.class.TxUpdateDoc ||
+          (sourceTx as TxUpdateDoc<Issue>).objectClass !== tracker.class.Issue ||
+          sourceTx.objectSpace !== createTx.objectSpace ||
+          sourceTx.modifiedBy !== createTx.modifiedBy ||
+          !shiftedIds.has((sourceTx as TxUpdateDoc<Issue>).objectId) ||
+          !('dueDate' in (sourceTx as TxUpdateDoc<Issue>).operations)
+        ) {
+          continue
+        }
 
-    for (const tx of control.txes) {
-      if (
-        tx._class !== core.class.TxUpdateDoc ||
-        (tx as TxUpdateDoc<Issue>).objectClass !== tracker.class.Issue ||
-        !('dueDate' in (tx as TxUpdateDoc<Issue>).operations)
-      ) {
-        continue
+        const markers = coverage.get(sourceTx._id) ?? []
+        markers.push({
+          summary: summaryTx._id,
+          recipient,
+          provider: gmail.providers.EmailNotificationProvider,
+          type: tracker.ids.DependencyShiftedNotification,
+          field: 'dueDate'
+        })
+        coverage.set(sourceTx._id, markers)
       }
-      const recipients = recipientsByIssue.get((tx as TxUpdateDoc<Issue>).objectId)
-      if (recipients === undefined) continue
-
-      tx.meta = {
-        ...tx.meta,
-        [dependencyShiftEmailRecipientsMeta]: JSON.stringify(Array.from(recipients))
-      }
+      control.contextCache.set(NOTIFICATION_PROVIDER_COVERAGE, coverage)
     }
   }
   return result

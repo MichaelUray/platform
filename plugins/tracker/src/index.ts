@@ -53,13 +53,6 @@ import { Action, ActionCategory, IconProps } from '@hcengineering/view'
 export * from './analytics'
 
 /**
- * Server-only meta key listing recipients whose due-date email is covered by
- * a dependency-shift summary in the same apply batch.
- * @public
- */
-export const dependencyShiftEmailRecipientsMeta = 'server:dependency-shift-email-recipients'
-
-/**
  * @public
  */
 export interface IssueStatus extends Status {}

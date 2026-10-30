@@ -36,6 +36,8 @@ import gmail, { Message } from '@hcengineering/gmail'
 import { TriggerControl } from '@hcengineering/server-core'
 import notification, {
   NotificationType,
+  NOTIFICATION_PROVIDER_SUPPRESSIONS,
+  type NotificationProviderSuppressions,
   InboxNotification,
   ActivityInboxNotification,
   MentionInboxNotification
@@ -293,10 +295,6 @@ function hasEmailProvider (n: InboxNotification, availableProviders: AvailablePr
   return providers?.find((p) => p === gmail.providers.EmailNotificationProvider) !== undefined
 }
 
-function hasProviderDecision (n: InboxNotification, availableProviders: AvailableProvidersCache): boolean {
-  return availableProviders.has(n._id) || availableProviders.has(n.objectId as Ref<InboxNotification>)
-}
-
 async function NotificationsHandler (txes: TxCreateDoc<InboxNotification>[], control: TriggerControl): Promise<Tx[]> {
   control.ctx.info('NotificationsHandler: received InboxNotification txes', {
     count: txes.length,
@@ -306,7 +304,11 @@ async function NotificationsHandler (txes: TxCreateDoc<InboxNotification>[], con
 
   const availableProviders: AvailableProvidersCache = control.contextCache.get(AvailableProvidersCacheKey) ?? new Map()
 
-  const all: InboxNotification[] = txes.map((tx) => TxProcessor.createDoc2Doc(tx))
+  const suppressed: NotificationProviderSuppressions | undefined =
+    control.contextCache.get(NOTIFICATION_PROVIDER_SUPPRESSIONS)
+  const all: InboxNotification[] = txes
+    .map((tx) => TxProcessor.createDoc2Doc(tx))
+    .filter((n) => !suppressed?.get(n._id)?.includes(gmail.providers.EmailNotificationProvider))
 
   const notificationsWithEmail = all.filter((it) => hasEmailProvider(it, availableProviders))
 
@@ -323,9 +325,6 @@ async function NotificationsHandler (txes: TxCreateDoc<InboxNotification>[], con
     const receiverByAccount = new Map(receivers.map((r) => [r.account, r]))
     for (const n of all) {
       if (hasEmailProvider(n, availableProviders)) continue
-      // A cached provider list was calculated by the notification trigger and
-      // may intentionally omit email (for example, a cascade summary covers it).
-      if (hasProviderDecision(n, availableProviders)) continue
       const type = (n.types ?? [])[0]
       if (type === undefined) {
         control.ctx.info('NotificationsHandler: skipping notification without type', { notificationId: n._id })

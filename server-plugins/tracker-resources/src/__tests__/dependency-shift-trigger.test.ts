@@ -20,9 +20,21 @@
 //  - duplicates collapse, oversized payloads are capped, and an empty result
 //    after filtering dispatches nothing at all.
 
-import core, { type AccountUuid, type Ref } from '@hcengineering/core'
+import core, {
+  type AccountUuid,
+  type Ref,
+  type Tx,
+  type TxCreateDoc,
+  type MeasureContext,
+  type SessionData,
+  MeasureMetricsContext,
+  TxFactory,
+  TxProcessor
+} from '@hcengineering/core'
 import contact from '@hcengineering/contact'
 import notification from '@hcengineering/notification'
+import { BroadcastMiddleware, TxMiddleware } from '@hcengineering/middleware'
+import type { PipelineContext } from '@hcengineering/server-core'
 
 // server-contact is mocked so the trigger's modifiedBy→account resolution is
 // deterministic without a live account store.
@@ -60,7 +72,6 @@ jest.mock('@hcengineering/tracker', () => {
     __esModule: true,
     ...actual,
     groupShiftsByRecipient,
-    dependencyShiftEmailRecipientsMeta: 'server:dependency-shift-email-recipients',
     default: {
       ...actual.default,
       class: {
@@ -73,7 +84,7 @@ jest.mock('@hcengineering/tracker', () => {
 
 // Imported after the mocks are registered.
 import { OnDependencyShiftRequest } from '../index'
-import tracker from '@hcengineering/tracker'
+import tracker, { type DependencyShiftedNotification } from '@hcengineering/tracker'
 
 const REAL = 'acc-real' as AccountUuid
 const MEMBER = 'acc-member' as AccountUuid
@@ -190,6 +201,7 @@ function makeControl (opts: WorldOptions = {}): any {
     }
     return []
   })
+  let nextTxId = 0
   const txFactory = {
     createTxRemoveDoc: (_class: any, space: any, objectId: any) => ({
       _class: core.class.TxRemoveDoc,
@@ -205,6 +217,7 @@ function makeControl (opts: WorldOptions = {}): any {
       operations
     }),
     createTxCreateDoc: (_class: any, space: any, attributes: any, objectId?: any) => ({
+      _id: `generated-tx-${++nextTxId}`,
       _class: core.class.TxCreateDoc,
       objectClass: _class,
       objectSpace: space,
@@ -212,7 +225,7 @@ function makeControl (opts: WorldOptions = {}): any {
       objectId
     })
   }
-  return { ctx: { contextData: {} }, findAll, txFactory, txes: [] }
+  return { ctx: { contextData: {} }, findAll, txFactory, txes: [], contextCache: new Map() }
 }
 
 function makeReqTx (modifiedBy: string, over: Partial<Record<string, unknown>> = {}): any {
@@ -240,6 +253,12 @@ function makeReqTx (modifiedBy: string, over: Partial<Record<string, unknown>> =
 
 function isShiftedNotificationCreate (tx: any): boolean {
   return tx?._class === core.class.TxCreateDoc && tx?.objectClass === tracker.class.DependencyShiftedNotification
+}
+
+function requireSummary (txes: Tx[]): TxCreateDoc<DependencyShiftedNotification> {
+  const tx = txes.find(isShiftedNotificationCreate)
+  if (tx === undefined) throw new Error('Expected a dependency-shift summary')
+  return tx as TxCreateDoc<DependencyShiftedNotification>
 }
 
 function isContextCreate (tx: any): boolean {
@@ -278,22 +297,88 @@ describe('OnDependencyShiftRequest', () => {
     expect(requestRemoved(res)).toBe(true)
   })
 
-  it('marks due-date updates covered by the created summary for each recipient', async () => {
+  it.each([false, true])('carries coverage with the summary without editing input txes (reversed=%s)', async (reversed) => {
     const control = makeControl()
     const request = makeReqTx('social-real')
-    const dueDateUpdate: any = {
+    const dueDateUpdate = Object.freeze({
+      _id: 'date-tx',
       _class: core.class.TxUpdateDoc,
       objectClass: tracker.class.Issue,
       objectId: 'issueB',
-      operations: { dueDate: DAY0 + 10 * DAY }
-    }
-    control.txes = [dueDateUpdate, request]
-
-    await OnDependencyShiftRequest([request], control)
-
-    expect(dueDateUpdate.meta).toEqual({
-      'server:dependency-shift-email-recipients': JSON.stringify([MEMBER])
+      objectSpace: HOME,
+      modifiedBy: request.modifiedBy,
+      meta: Object.freeze({ public: 'unchanged' }),
+      operations: Object.freeze({ dueDate: DAY0 + 10 * DAY })
     })
+    const otherAuthor = { ...dueDateUpdate, _id: 'other-author', modifiedBy: 'someone-else' }
+    const otherSpace = { ...dueDateUpdate, _id: 'other-space', objectSpace: FOREIGN }
+    const otherField = { ...dueDateUpdate, _id: 'other-field', operations: { title: 'new title' } }
+    control.txes = [dueDateUpdate, otherAuthor, otherSpace, otherField, request]
+    if (reversed) control.txes.reverse()
+    const before = JSON.stringify(control.txes)
+
+    const result = await OnDependencyShiftRequest([request], control)
+    const summary = requireSummary(result)
+    const coverage = control.contextCache.get('notification:provider-coverage')
+    expect(coverage.get('date-tx')).toEqual([{
+      summary: summary._id, recipient: MEMBER, provider: 'gmail:providers:EmailNotificationProvider',
+      type: tracker.ids.DependencyShiftedNotification, field: 'dueDate'
+    }])
+    expect([...coverage.keys()]).toEqual(['date-tx'])
+    expect(JSON.stringify(control.txes)).toBe(before)
+    expect(JSON.stringify(result)).not.toContain('notification:provider-coverage')
+    expect(result.every((tx: Tx) => tx.meta === undefined)).toBe(true)
+  })
+
+  it('keeps coverage out of transaction storage, documents and client broadcasts', async () => {
+    const control = makeControl()
+    const request = makeReqTx('social-real')
+    const update = {
+      _id: 'date-tx', _class: core.class.TxUpdateDoc, space: core.space.Tx,
+      objectClass: tracker.class.Issue, objectId: 'issueB', objectSpace: HOME,
+      modifiedBy: request.modifiedBy, operations: { dueDate: DAY0 + 10 * DAY }
+    }
+    control.txes = [update, request]
+    control.txFactory = new TxFactory(core.account.System)
+    const generated = await OnDependencyShiftRequest([request], control)
+    expect(control.contextCache.has('notification:provider-coverage')).toBe(true)
+
+    const stored = jest.fn(async (..._args: unknown[]) => [])
+    const sent = jest.fn()
+    const ctx = new MeasureMetricsContext('test', {}) as MeasureContext<SessionData>
+    ctx.contextData = {
+      contextCache: control.contextCache,
+      broadcast: { txes: [], targets: {}, queue: [], sessions: {} }
+    } as unknown as SessionData
+    const pipeline = {
+      hierarchy: { findDomain: () => 'notification' },
+      adapterManager: { getAdapter: () => ({ tx: stored }) }
+    } as unknown as PipelineContext
+    const broadcast = new BroadcastMiddleware(pipeline, undefined, {
+      broadcast: sent, broadcastSessions: jest.fn()
+    })
+    const storage = await TxMiddleware.create(ctx, pipeline, broadcast)
+    const txes = [update, request, ...generated] as Tx[]
+
+    await storage.tx(ctx, txes)
+    await broadcast.handleBroadcast(ctx)
+
+    expect(stored).toHaveBeenCalledTimes(1)
+    expect(sent).toHaveBeenCalledTimes(1)
+    const persisted = stored.mock.calls[0].slice(1)
+    const broadcastTxes = sent.mock.calls[0][1] as Tx[]
+    expect(persisted).toHaveLength(txes.length)
+    expect(broadcastTxes).toEqual(expect.arrayContaining(txes))
+    for (const transport of [persisted, broadcastTxes]) {
+      expect(JSON.stringify(transport)).not.toContain('notification:provider-coverage')
+      expect(JSON.stringify(transport)).not.toContain('notification:provider-suppressions')
+      expect(transport.every((tx) => (tx as Tx).meta === undefined)).toBe(true)
+    }
+    const summaryTx = requireSummary(generated)
+    const summaryDoc = TxProcessor.createDoc2Doc(summaryTx)
+    expect(summaryDoc).not.toHaveProperty('meta')
+    expect(summaryDoc).not.toHaveProperty('coverage')
+    expect(summaryTx.meta).toBeUndefined()
   })
 
   it('fails closed (no notifications) when the author account cannot be resolved', async () => {

@@ -15,114 +15,160 @@
 // SPDX-License-Identifier: EPL-2.0
 //
 
-import core, { type AccountUuid, type TxUpdateDoc } from '@hcengineering/core'
-import gmail from '@hcengineering/gmail'
+import activity, { type DocUpdateMessage } from '@hcengineering/activity'
+import core, { type AccountUuid, type Doc, type Ref, type Tx, type TxUpdateDoc, TxFactory } from '@hcengineering/core'
 import notification, {
+  type DocNotifyContext,
+  type InboxNotification,
   type NotificationProvider,
   type NotificationType,
   type NotificationTypeSetting
 } from '@hcengineering/notification'
-import tracker, { dependencyShiftEmailRecipientsMeta, type Issue } from '@hcengineering/tracker'
+import type { TriggerControl } from '@hcengineering/server-core'
+import type { ReceiverInfo, SenderInfo } from '@hcengineering/server-notification'
+import { getCommonNotificationTxes, getNotificationTxes } from '../index'
+import * as utils from '../utils'
 import { isShouldNotifyTx, NotificationProviderControl } from '../utils'
 
+// Use a non-tracker document, field, type and provider: coverage is generic.
 const RECIPIENT = 'recipient' as AccountUuid
 const SOCIAL_ID = 'recipient-social'
-
-const emailProvider = {
-  _id: gmail.providers.EmailNotificationProvider,
-  defaultEnabled: true
-} as unknown as NotificationProvider
-
-const dueDateType = {
-  _id: 'tracker:notification:Issue_dueDate',
-  defaultEnabled: true,
-  field: 'dueDate',
-  txClasses: [core.class.TxUpdateDoc],
-  objectClass: tracker.class.Issue
+const COVERAGE_KEY = 'notification:provider-coverage'
+const provider = { _id: 'test:provider:Delivery', defaultEnabled: true } as NotificationProvider
+const inbox = { _id: notification.providers.InboxNotificationProvider, defaultEnabled: true } as NotificationProvider
+const changeType = {
+  _id: 'test:type:Change', defaultEnabled: true, field: 'title',
+  txClasses: [core.class.TxUpdateDoc], objectClass: core.class.Doc
 } as unknown as NotificationType
+const summaryType = { _id: 'test:type:Summary', defaultEnabled: true } as NotificationType
+const summary = { _id: 'summary-tx' } as Tx
 
-const dependencyShiftType = {
-  _id: 'tracker:ids:DependencyShiftedNotification',
-  defaultEnabled: true,
-  txClasses: [core.class.TxCreateDoc],
-  objectClass: tracker.class.DependencyShiftedNotification
-} as unknown as NotificationType
-
-function makeControl (): any {
+function makeControl (marked = true): TriggerControl {
   return {
+    txes: [summary],
+    contextCache: new Map(marked ? [[COVERAGE_KEY, new Map([['tx1', [{
+      summary: summary._id, recipient: RECIPIENT, provider: provider._id, type: summaryType._id, field: 'title'
+    }]]])]] : []),
     modelDb: {
-      findAllSync: (clazz: unknown, query: { objectClass?: string }) => {
-        if (clazz === notification.class.NotificationProvider) return [emailProvider]
-        if (clazz === notification.class.NotificationProviderDefaults) return []
-        if (clazz === notification.class.NotificationType) {
-          return query.objectClass === tracker.class.DependencyShiftedNotification
-            ? [dependencyShiftType]
-            : [dueDateType, dependencyShiftType]
-        }
+      findObject: jest.fn().mockReturnValue(summaryType),
+      findAllSync: jest.fn((clazz: unknown) => {
+        if (clazz === notification.class.NotificationProvider) return [provider, inbox]
+        if (clazz === notification.class.NotificationType) return [changeType]
         return []
-      }
+      })
     },
     hierarchy: {
       getBaseClass: (clazz: unknown) => clazz,
       isDerived: (clazz: unknown, parent: unknown) => clazz === parent,
       hasMixin: () => false
     }
-  }
+  } as unknown as TriggerControl
 }
 
-function makeDueDateUpdate (): TxUpdateDoc<Issue> {
+function makeUpdate (): TxUpdateDoc<Doc> {
   return {
-    _id: 'tx1' as any,
-    _class: core.class.TxUpdateDoc,
-    space: core.space.Tx,
-    objectSpace: 'project1' as any,
-    objectId: 'issue1' as any,
-    objectClass: tracker.class.Issue,
-    modifiedBy: 'author' as any,
-    modifiedOn: 1,
-    operations: { dueDate: 2 },
-    meta: { [dependencyShiftEmailRecipientsMeta]: JSON.stringify([RECIPIENT]) }
-  }
+    _id: 'tx1', _class: core.class.TxUpdateDoc, space: core.space.Tx,
+    objectSpace: 'project1', objectId: 'document1', objectClass: core.class.Doc,
+    modifiedBy: 'author', modifiedOn: 1, operations: { title: 'changed' }
+  } as unknown as TxUpdateDoc<Doc>
 }
 
-describe('dependency-shift due-date email suppression', () => {
-  it('suppresses the due-date email when the recipient can receive the summary email', async () => {
-    const result = await isShouldNotifyTx(
-      makeControl(),
-      makeDueDateUpdate(),
-      {} as unknown as Issue,
-      { account: RECIPIENT, socialIds: [SOCIAL_ID], employee: 'employee' } as any,
-      false,
-      false,
-      new NotificationProviderControl([], [])
-    )
+async function notify (control: TriggerControl, settings: NotificationTypeSetting[] = [], tx = makeUpdate ()) {
+  return await isShouldNotifyTx(
+    control, tx, {} as Doc,
+    { account: RECIPIENT, socialIds: [SOCIAL_ID], employee: 'employee' } as unknown as ReceiverInfo,
+    false, false, new NotificationProviderControl([], settings)
+  )
+}
 
-    expect(result.has(gmail.providers.EmailNotificationProvider)).toBe(false)
+describe('notification provider coverage', () => {
+  it('suppresses only the covered provider and keeps inbox delivery', async () => {
+    const control = makeControl()
+    const result = await notify(control)
+    expect(control.modelDb.findObject).toHaveBeenCalledTimes(1)
+    expect(result.has(provider._id)).toBe(false)
+    expect(result.get(inbox._id)).toEqual([changeType])
   })
 
-  it('keeps the due-date email when the recipient disabled the summary type', async () => {
-    const summaryDisabled: NotificationTypeSetting = {
-      _id: 'setting' as any,
-      _class: notification.class.NotificationTypeSetting,
-      space: core.space.Workspace,
-      attachedTo: gmail.providers.EmailNotificationProvider,
-      type: dependencyShiftType._id,
-      enabled: false,
-      createdBy: SOCIAL_ID as any,
-      createdOn: 1,
-      modifiedBy: SOCIAL_ID as any,
-      modifiedOn: 1
+  it.each(['activity', 'common'])('passes explicit coverage through the %s notification producer', async (kind) => {
+    const control = makeControl()
+    const tx = makeUpdate()
+    const object = { _id: tx.objectId, _class: tx.objectClass, space: tx.objectSpace } as Doc
+    const receiver = {
+      account: RECIPIENT, socialIds: [SOCIAL_ID], employee: 'employee', space: 'person-space'
+    } as unknown as ReceiverInfo
+    const sender = { socialId: tx.modifiedBy } as SenderInfo
+    const context = { _id: 'context', objectId: object._id, user: RECIPIENT } as DocNotifyContext
+    control.txFactory = new TxFactory(core.account.System)
+    control.findAll = jest.fn().mockResolvedValue([context])
+    const content = jest.spyOn(utils, 'getNotificationContent').mockResolvedValue({
+      title: notification.string.CommonNotificationTitle, body: notification.string.CommonNotificationBody, intlParams: {}
+    })
+    try {
+      const result = kind === 'activity'
+        ? await getNotificationTxes(
+          control.ctx, control, object, tx, receiver, sender,
+          { isOwn: false, isSpace: false, shouldUpdateTimestamp: false }, [context],
+          [{ _id: 'message', _class: activity.class.DocUpdateMessage, attachedTo: object._id } as DocUpdateMessage],
+          new NotificationProviderControl([], [])
+        )
+        : await getCommonNotificationTxes(
+          control.ctx, control, object, {}, receiver, sender, object._id, object._class, object.space, 1,
+          await notify(control), notification.class.CommonInboxNotification, tx
+        )
+      const notificationTx = result[0] as unknown as { objectId: Ref<InboxNotification> }
+      expect(control.contextCache.get('notification:provider-suppressions').get(notificationTx.objectId))
+        .toEqual([provider._id])
+      expect(control.contextCache.get('AvailableNotificationProviders').get(notificationTx.objectId))
+        .toEqual([inbox._id])
+      expect(JSON.stringify(result)).not.toContain('notification:provider-suppressions')
+    } finally {
+      content.mockRestore()
     }
-    const result = await isShouldNotifyTx(
-      makeControl(),
-      makeDueDateUpdate(),
-      {} as unknown as Issue,
-      { account: RECIPIENT, socialIds: [SOCIAL_ID], employee: 'employee' } as any,
-      false,
-      false,
-      new NotificationProviderControl([], [summaryDisabled])
-    )
+  })
 
-    expect(result.get(gmail.providers.EmailNotificationProvider)).toEqual([dueDateType])
+  it.each([false, true])('uses explicit summary input regardless of its position (reversed=%s)', async (reversed) => {
+    const control = makeControl()
+    control.txes = [summary, makeUpdate()]
+    if (reversed) control.txes.reverse()
+    expect((await notify(control)).has(provider._id)).toBe(false)
+  })
+
+  it('keeps delivery when the recipient disabled the covering summary type', async () => {
+    const result = await notify(makeControl(), [{
+      attachedTo: provider._id, type: summaryType._id, enabled: false, createdBy: SOCIAL_ID
+    } as NotificationTypeSetting])
+    expect(result.get(provider._id)).toEqual([changeType])
+  })
+
+  it('does not look up a summary or check its settings on the unmarked hot path', async () => {
+    const control = makeControl(false)
+    for (let i = 0; i < 100; i++) await notify(control)
+    expect(control.modelDb.findObject).not.toHaveBeenCalled()
+    const queries = jest.mocked(control.modelDb.findAllSync).mock.calls
+    expect(queries.filter(([clazz]) => clazz === notification.class.NotificationType)).toHaveLength(100)
+    // One ordinary isAllowed per provider and invocation; no extra summary isAllowed.
+    expect(queries.filter(([clazz]) => clazz === notification.class.NotificationProviderDefaults)).toHaveLength(200)
+  })
+
+  it.each(['recipient', 'field', 'summary'])('ignores a marker for another %s', async (key) => {
+    const control = makeControl()
+    const markers = control.contextCache.get(COVERAGE_KEY)
+    markers.get('tx1')[0][key] = 'unrelated'
+    const result = await notify(control)
+    expect(result.get(provider._id)).toEqual([changeType])
+    expect(control.modelDb.findObject).not.toHaveBeenCalled()
+  })
+
+  it('keeps delivery when the covering summary type is missing', async () => {
+    const control = makeControl()
+    jest.mocked(control.modelDb.findObject).mockReturnValue(undefined)
+    expect((await notify(control)).get(provider._id)).toEqual([changeType])
+  })
+
+  it('ignores forged transaction meta', async () => {
+    const tx = makeUpdate()
+    tx.meta = { [COVERAGE_KEY]: JSON.stringify([{ recipient: RECIPIENT }]) }
+    expect((await notify(makeControl(false), [], tx)).get(provider._id)).toEqual([changeType])
   })
 })
