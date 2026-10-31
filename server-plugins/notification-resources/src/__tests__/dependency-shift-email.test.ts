@@ -28,7 +28,7 @@ import type { TriggerControl } from '@hcengineering/server-core'
 import type { ReceiverInfo, SenderInfo } from '@hcengineering/server-notification'
 import { getCommonNotificationTxes, getNotificationTxes } from '../index'
 import * as utils from '../utils'
-import { isShouldNotifyTx, NotificationProviderControl } from '../utils'
+import { cacheNotificationProviderDecision, isShouldNotifyTx, NotificationProviderControl } from '../utils'
 
 // Use a non-tracker document, field, type and provider: coverage is generic.
 const RECIPIENT = 'recipient' as AccountUuid
@@ -43,7 +43,7 @@ const changeType = {
 const summaryType = { _id: 'test:type:Summary', defaultEnabled: true } as NotificationType
 const summary = { _id: 'summary-tx' } as Tx
 
-function makeControl (marked = true): TriggerControl {
+function makeControl (marked = true, types: NotificationType[] = [changeType]): TriggerControl {
   return {
     txes: [summary],
     contextCache: new Map(marked ? [[COVERAGE_KEY, new Map([['tx1', [{
@@ -53,7 +53,7 @@ function makeControl (marked = true): TriggerControl {
       findObject: jest.fn().mockReturnValue(summaryType),
       findAllSync: jest.fn((clazz: unknown) => {
         if (clazz === notification.class.NotificationProvider) return [provider, inbox]
-        if (clazz === notification.class.NotificationType) return [changeType]
+        if (clazz === notification.class.NotificationType) return types
         return []
       })
     },
@@ -88,6 +88,26 @@ describe('notification provider coverage', () => {
     expect(control.modelDb.findObject).toHaveBeenCalledTimes(1)
     expect(result.has(provider._id)).toBe(false)
     expect(result.get(inbox._id)).toEqual([changeType])
+  })
+
+  it.each([false, true])('keeps a provider needed by an uncovered type (reversed=%s)', async (reversed) => {
+    const uncoveredType: NotificationType = {
+      ...changeType,
+      _id: 'test:type:Update' as Ref<NotificationType>,
+      field: undefined
+    }
+    const types = [changeType, uncoveredType]
+    if (reversed) types.reverse()
+    const control = makeControl(true, types)
+    const result = await notify(control)
+
+    expect(result.get(provider._id)).toEqual([uncoveredType])
+    expect(result.get(inbox._id)).toEqual(types)
+
+    const id = 'mixed-notification' as Ref<InboxNotification>
+    cacheNotificationProviderDecision(control, id, result)
+    expect(control.contextCache.get('AvailableNotificationProviders').get(id)).toContain(provider._id)
+    expect(control.contextCache.get('notification:provider-suppressions')?.get(id)).toBeUndefined()
   })
 
   it.each(['activity', 'common'])('passes explicit coverage through the %s notification producer', async (kind) => {
@@ -141,9 +161,13 @@ describe('notification provider coverage', () => {
     expect(result.get(provider._id)).toEqual([changeType])
   })
 
-  it('does not look up a summary or check its settings on the unmarked hot path', async () => {
-    const control = makeControl(false)
-    for (let i = 0; i < 100; i++) await notify(control)
+  it.each([false, true])('skips summary checks for an unmarked tx (coverage cache=%s)', async (marked) => {
+    const control = makeControl(marked)
+    const tx = makeUpdate()
+    tx._id = 'unmarked' as Ref<TxUpdateDoc<Doc>>
+    for (let i = 0; i < 100; i++) {
+      expect((await notify(control, [], tx)).get(provider._id)).toEqual([changeType])
+    }
     expect(control.modelDb.findObject).not.toHaveBeenCalled()
     const queries = jest.mocked(control.modelDb.findAllSync).mock.calls
     expect(queries.filter(([clazz]) => clazz === notification.class.NotificationType)).toHaveLength(100)
