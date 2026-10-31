@@ -16,7 +16,16 @@
 //
 
 import activity, { type DocUpdateMessage } from '@hcengineering/activity'
-import core, { type AccountUuid, type Doc, type Ref, type Tx, type TxUpdateDoc, TxFactory } from '@hcengineering/core'
+import core, {
+  type AccountUuid,
+  type Doc,
+  type PersonId,
+  type Ref,
+  type Space,
+  type Tx,
+  type TxUpdateDoc,
+  TxFactory
+} from '@hcengineering/core'
 import notification, {
   type DocNotifyContext,
   type InboxNotification,
@@ -29,25 +38,82 @@ import type { ReceiverInfo, SenderInfo } from '@hcengineering/server-notificatio
 import { getCommonNotificationTxes, getNotificationTxes } from '../index'
 import * as utils from '../utils'
 import { cacheNotificationProviderDecision, isShouldNotifyTx, NotificationProviderControl } from '../utils'
+import type { NotifyResult } from '../types'
 
 // Use a non-tracker document, field, type and provider: coverage is generic.
 const RECIPIENT = 'recipient' as AccountUuid
-const SOCIAL_ID = 'recipient-social'
+const SOCIAL_ID = 'recipient-social' as PersonId
 const COVERAGE_KEY = 'notification:provider-coverage'
-const provider = { _id: 'test:provider:Delivery', defaultEnabled: true } as NotificationProvider
-const inbox = { _id: notification.providers.InboxNotificationProvider, defaultEnabled: true } as NotificationProvider
-const changeType = {
-  _id: 'test:type:Change',
+interface TestDocument extends Doc {
+  title: string
+}
+
+const document: TestDocument = {
+  _id: 'document1' as Ref<TestDocument>,
+  _class: core.class.Doc,
+  space: 'project1' as Ref<Space>,
+  modifiedBy: 'author' as PersonId,
+  modifiedOn: 1,
+  title: 'original'
+}
+const provider: NotificationProvider = {
+  ...document,
+  _id: 'test:provider:Delivery' as Ref<NotificationProvider>,
+  _class: notification.class.NotificationProvider,
+  label: notification.string.Notifications,
+  description: notification.string.Notifications,
+  icon: notification.icon.Notifications,
+  defaultEnabled: true,
+  canDisable: true,
+  order: 0
+}
+const inbox: NotificationProvider = { ...provider, _id: notification.providers.InboxNotificationProvider }
+const changeType: NotificationType = {
+  ...document,
+  _id: 'test:type:Change' as Ref<NotificationType>,
+  _class: notification.class.NotificationType,
+  label: notification.string.Notifications,
+  generated: false,
+  hidden: false,
+  group: notification.ids.NotificationGroup,
   defaultEnabled: true,
   field: 'title',
   txClasses: [core.class.TxUpdateDoc],
   objectClass: core.class.Doc
-} as unknown as NotificationType
-const summaryType = { _id: 'test:type:Summary', defaultEnabled: true } as NotificationType
-const summary = { _id: 'summary-tx' } as Tx
+}
+const summaryType: NotificationType = {
+  ...changeType,
+  _id: 'test:type:Summary' as Ref<NotificationType>,
+  field: undefined
+}
+const summary: Tx = {
+  ...document,
+  _id: 'summary-tx' as Ref<Tx>,
+  _class: core.class.Tx,
+  objectSpace: document.space
+}
+const receiver: ReceiverInfo = {
+  account: RECIPIENT,
+  socialIds: [SOCIAL_ID],
+  employee: 'employee' as ReceiverInfo['employee'],
+  space: 'person-space' as ReceiverInfo['space'],
+  role: undefined
+}
 
-function makeControl (marked = true, types: NotificationType[] = [changeType]): TriggerControl {
-  return {
+interface TestControl {
+  control: TriggerControl
+  findObject: jest.Mock
+  findAllSync: jest.Mock
+}
+
+function makeControl (marked = true, types: NotificationType[] = [changeType]): TestControl {
+  const findObject = jest.fn().mockReturnValue(summaryType)
+  const findAllSync = jest.fn((clazz: unknown) => {
+    if (clazz === notification.class.NotificationProvider) return [provider, inbox]
+    if (clazz === notification.class.NotificationType) return types
+    return []
+  })
+  const control = {
     txes: [summary],
     contextCache: new Map(
       marked
@@ -73,12 +139,8 @@ function makeControl (marked = true, types: NotificationType[] = [changeType]): 
         : []
     ),
     modelDb: {
-      findObject: jest.fn().mockReturnValue(summaryType),
-      findAllSync: jest.fn((clazz: unknown) => {
-        if (clazz === notification.class.NotificationProvider) return [provider, inbox]
-        if (clazz === notification.class.NotificationType) return types
-        return []
-      })
+      findObject,
+      findAllSync
     },
     hierarchy: {
       getBaseClass: (clazz: unknown) => clazz,
@@ -86,28 +148,33 @@ function makeControl (marked = true, types: NotificationType[] = [changeType]): 
       hasMixin: () => false
     }
   } as unknown as TriggerControl
+  return { control, findObject, findAllSync }
 }
 
-function makeUpdate (): TxUpdateDoc<Doc> {
+function makeUpdate (): TxUpdateDoc<TestDocument> {
   return {
-    _id: 'tx1',
+    _id: 'tx1' as Ref<TxUpdateDoc<TestDocument>>,
     _class: core.class.TxUpdateDoc,
     space: core.space.Tx,
-    objectSpace: 'project1',
-    objectId: 'document1',
-    objectClass: core.class.Doc,
-    modifiedBy: 'author',
-    modifiedOn: 1,
+    objectSpace: document.space,
+    objectId: document._id,
+    objectClass: document._class,
+    modifiedBy: document.modifiedBy,
+    modifiedOn: document.modifiedOn,
     operations: { title: 'changed' }
-  } as unknown as TxUpdateDoc<Doc>
+  }
 }
 
-async function notify (control: TriggerControl, settings: NotificationTypeSetting[] = [], tx = makeUpdate()) {
+async function notify (
+  control: TriggerControl,
+  settings: NotificationTypeSetting[] = [],
+  tx = makeUpdate()
+): Promise<NotifyResult> {
   return await isShouldNotifyTx(
     control,
     tx,
-    {} as Doc,
-    { account: RECIPIENT, socialIds: [SOCIAL_ID], employee: 'employee' } as unknown as ReceiverInfo,
+    document,
+    receiver,
     false,
     false,
     new NotificationProviderControl([], settings)
@@ -116,9 +183,9 @@ async function notify (control: TriggerControl, settings: NotificationTypeSettin
 
 describe('notification provider coverage', () => {
   it('suppresses only the covered provider and keeps inbox delivery', async () => {
-    const control = makeControl()
+    const { control, findObject } = makeControl()
     const result = await notify(control)
-    expect(control.modelDb.findObject).toHaveBeenCalledTimes(1)
+    expect(findObject).toHaveBeenCalledTimes(1)
     expect(result.has(provider._id)).toBe(false)
     expect(result.get(inbox._id)).toEqual([changeType])
   })
@@ -131,7 +198,7 @@ describe('notification provider coverage', () => {
     }
     const types = [changeType, uncoveredType]
     if (reversed) types.reverse()
-    const control = makeControl(true, types)
+    const { control } = makeControl(true, types)
     const result = await notify(control)
 
     expect(result.get(provider._id)).toEqual([uncoveredType])
@@ -144,17 +211,33 @@ describe('notification provider coverage', () => {
   })
 
   it.each(['activity', 'common'])('passes explicit coverage through the %s notification producer', async (kind) => {
-    const control = makeControl()
+    const { control } = makeControl()
     const tx = makeUpdate()
-    const object = { _id: tx.objectId, _class: tx.objectClass, space: tx.objectSpace } as Doc
-    const receiver = {
-      account: RECIPIENT,
-      socialIds: [SOCIAL_ID],
-      employee: 'employee',
-      space: 'person-space'
-    } as unknown as ReceiverInfo
-    const sender = { socialId: tx.modifiedBy } as SenderInfo
-    const context = { _id: 'context', objectId: object._id, user: RECIPIENT } as DocNotifyContext
+    const object: Doc = { ...document, _id: tx.objectId, _class: tx.objectClass, space: tx.objectSpace }
+    const sender: SenderInfo = { socialId: tx.modifiedBy }
+    const context: DocNotifyContext = {
+      ...document,
+      _id: 'context' as Ref<DocNotifyContext>,
+      _class: notification.class.DocNotifyContext,
+      space: receiver.space,
+      objectId: object._id,
+      objectClass: object._class,
+      objectSpace: object.space,
+      user: RECIPIENT,
+      isPinned: false,
+      hidden: false
+    }
+    const message: DocUpdateMessage = {
+      ...document,
+      _id: 'message' as Ref<DocUpdateMessage>,
+      _class: activity.class.DocUpdateMessage,
+      attachedTo: object._id,
+      attachedToClass: object._class,
+      collection: 'messages',
+      objectId: object._id,
+      objectClass: object._class,
+      action: 'update'
+    }
     control.txFactory = new TxFactory(core.account.System)
     control.findAll = jest.fn().mockResolvedValue([context])
     const content = jest.spyOn(utils, 'getNotificationContent').mockResolvedValue({
@@ -174,7 +257,7 @@ describe('notification provider coverage', () => {
               sender,
               { isOwn: false, isSpace: false, shouldUpdateTimestamp: false },
               [context],
-              [{ _id: 'message', _class: activity.class.DocUpdateMessage, attachedTo: object._id } as DocUpdateMessage],
+              [message],
               new NotificationProviderControl([], [])
             )
           : await getCommonNotificationTxes(
@@ -206,56 +289,58 @@ describe('notification provider coverage', () => {
   })
 
   it.each([false, true])('uses explicit summary input regardless of its position (reversed=%s)', async (reversed) => {
-    const control = makeControl()
+    const { control } = makeControl()
     control.txes = [summary, makeUpdate()]
     if (reversed) control.txes.reverse()
     expect((await notify(control)).has(provider._id)).toBe(false)
   })
 
   it('keeps delivery when the recipient disabled the covering summary type', async () => {
-    const result = await notify(makeControl(), [
-      {
-        attachedTo: provider._id,
-        type: summaryType._id,
-        enabled: false,
-        createdBy: SOCIAL_ID
-      } as NotificationTypeSetting
-    ])
+    const setting: NotificationTypeSetting = {
+      ...document,
+      _id: 'summary-setting' as Ref<NotificationTypeSetting>,
+      _class: notification.class.NotificationTypeSetting,
+      attachedTo: provider._id,
+      type: summaryType._id,
+      enabled: false,
+      createdBy: SOCIAL_ID
+    }
+    const result = await notify(makeControl().control, [setting])
     expect(result.get(provider._id)).toEqual([changeType])
   })
 
   it.each([false, true])('skips summary checks for an unmarked tx (coverage cache=%s)', async (marked) => {
-    const control = makeControl(marked)
+    const { control, findObject, findAllSync } = makeControl(marked)
     const tx = makeUpdate()
-    tx._id = 'unmarked' as Ref<TxUpdateDoc<Doc>>
+    tx._id = 'unmarked' as Ref<TxUpdateDoc<TestDocument>>
     for (let i = 0; i < 100; i++) {
       expect((await notify(control, [], tx)).get(provider._id)).toEqual([changeType])
     }
-    expect(control.modelDb.findObject).not.toHaveBeenCalled()
-    const queries = jest.mocked(control.modelDb.findAllSync).mock.calls
+    expect(findObject).not.toHaveBeenCalled()
+    const queries = findAllSync.mock.calls
     expect(queries.filter(([clazz]) => clazz === notification.class.NotificationType)).toHaveLength(100)
     // One ordinary isAllowed per provider and invocation; no extra summary isAllowed.
     expect(queries.filter(([clazz]) => clazz === notification.class.NotificationProviderDefaults)).toHaveLength(200)
   })
 
   it.each(['recipient', 'field', 'summary'])('ignores a marker for another %s', async (key) => {
-    const control = makeControl()
+    const { control, findObject } = makeControl()
     const markers = control.contextCache.get(COVERAGE_KEY)
     markers.get('tx1')[0][key] = 'unrelated'
     const result = await notify(control)
     expect(result.get(provider._id)).toEqual([changeType])
-    expect(control.modelDb.findObject).not.toHaveBeenCalled()
+    expect(findObject).not.toHaveBeenCalled()
   })
 
   it('keeps delivery when the covering summary type is missing', async () => {
-    const control = makeControl()
-    jest.mocked(control.modelDb.findObject).mockReturnValue(undefined)
+    const { control, findObject } = makeControl()
+    findObject.mockReturnValue(undefined)
     expect((await notify(control)).get(provider._id)).toEqual([changeType])
   })
 
   it('ignores forged transaction meta', async () => {
     const tx = makeUpdate()
     tx.meta = { [COVERAGE_KEY]: JSON.stringify([{ recipient: RECIPIENT }]) }
-    expect((await notify(makeControl(false), [], tx)).get(provider._id)).toEqual([changeType])
+    expect((await notify(makeControl(false).control, [], tx)).get(provider._id)).toEqual([changeType])
   })
 })

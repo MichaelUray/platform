@@ -350,14 +350,28 @@ describe('OnDependencyShiftRequest', () => {
     expect(generated.filter(isShiftedNotificationCreate)).toHaveLength(1)
     expect(summary.attributes.shiftedIssues).toHaveLength(MAX_DISPLAYED_SHIFTED_ISSUES)
 
-    const dueDateType = {
-      _id: 'tracker:notification:Issue_dueDate',
+    const dueDateType: NotificationType = {
+      _id: 'tracker:notification:Issue_dueDate' as Ref<NotificationType>,
+      _class: notification.class.NotificationType,
+      space: core.space.Model,
+      modifiedBy: core.account.System,
+      modifiedOn: DAY0,
+      label: notification.string.Notifications,
+      generated: false,
+      hidden: false,
+      group: notification.ids.NotificationGroup,
       field: 'dueDate',
       defaultEnabled: true,
       txClasses: [core.class.TxUpdateDoc],
       objectClass: tracker.class.Issue
-    } as unknown as NotificationType
-    const summaryType = { _id: tracker.ids.DependencyShiftedNotification, defaultEnabled: true } as NotificationType
+    }
+    const summaryType: NotificationType = {
+      ...dueDateType,
+      _id: tracker.ids.DependencyShiftedNotification,
+      objectClass: tracker.class.DependencyShiftedNotification,
+      txClasses: [core.class.TxCreateDoc],
+      field: undefined
+    }
     const providers = [gmail.providers.EmailNotificationProvider, notification.providers.InboxNotificationProvider].map(
       (_id) => ({ _id, defaultEnabled: true })
     )
@@ -385,11 +399,23 @@ describe('OnDependencyShiftRequest', () => {
       return [...defaultIssues(), ...moved].filter((doc) => doc._id === q._id)
     })
     control.txes.push(...generated)
-    const receiver = { account: MEMBER, socialIds: ['member-social'], space: 'person-space' } as ReceiverInfo
-    const sender = { socialId: request.modifiedBy } as SenderInfo
+    const receiver: ReceiverInfo = {
+      account: MEMBER,
+      socialIds: ['member-social' as ReceiverInfo['socialIds'][number]],
+      space: 'person-space' as ReceiverInfo['space'],
+      employee: 'emp-acc-member' as ReceiverInfo['employee'],
+      role: undefined
+    }
+    const sender: SenderInfo = { socialId: request.modifiedBy }
     const notifications: TxCreateDoc<InboxNotification>[] = [summary]
     for (const update of updates) {
-      const doc = { _id: update.objectId, _class: tracker.class.Issue, space: update.objectSpace } as Doc
+      const doc: Doc = {
+        _id: update.objectId,
+        _class: tracker.class.Issue,
+        space: update.objectSpace,
+        modifiedBy: update.modifiedBy,
+        modifiedOn: update.modifiedOn
+      }
       const result = await isShouldNotifyTx(
         control,
         update,
