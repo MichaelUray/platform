@@ -159,7 +159,10 @@ test('survey reaches real list board and create', async ({ page, survey }, info)
   }
   // Cleanup is asserted by the fixture teardown, independently from these UI outcomes.
   expect(
-    isTask1Accepted(info.project.name, survey.steps.map((step) => ({ ...step, cleanup: 'ok' }))),
+    isTask1Accepted(
+      info.project.name,
+      survey.steps.map((step) => ({ ...step, cleanup: 'ok' }))
+    ),
     'Desktop requires every UI path; phones allow only evidenced navigator gaps, never unexplained recovery'
   ).toBe(true)
 })
