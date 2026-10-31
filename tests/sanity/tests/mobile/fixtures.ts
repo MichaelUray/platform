@@ -16,7 +16,7 @@ import workbench from '@hcengineering/workbench'
 import { writeFile } from 'node:fs/promises'
 import { LoginPage } from '../model/login-page'
 import { SelectWorkspacePage } from '../model/select-workspace-page'
-import { isUiSuccess, resolveIssueViewlets } from './contracts'
+import { isTask1Accepted, NAVIGATOR_GAP_REASON, resolveIssueViewlets } from './contracts'
 import type { MobileStepResult } from './contracts'
 
 export type { MobileStepResult } from './contracts'
@@ -30,6 +30,7 @@ export interface MobileSurvey {
   steps: MobileStepResult[]
   behaviorStarted: boolean
   failures: string[]
+  phase: (name: string) => void
   step: (name: string, action: () => Promise<void>, recovery?: () => Promise<void>) => Promise<void>
 }
 
@@ -43,16 +44,66 @@ function required (name: string): string {
   return value
 }
 
+class NavigatorGapError extends Error {
+  constructor (readonly target: Locator) {
+    super(NAVIGATOR_GAP_REASON)
+    this.name = 'NavigatorGapError'
+  }
+}
+
+/** Confirm actual hit interception, rather than interpreting a phone timeout as a product bug. */
+async function navigatorIntercepts (locator: Locator): Promise<boolean> {
+  try {
+    if (await locator.count() !== 1 || !(await locator.isVisible()) || !(await locator.isEnabled())) return false
+    return await locator.evaluate((element) => {
+      if (navigator.maxTouchPoints === 0 || element.closest('.antiPanel-navigator') !== null) return false
+      const box = element.getBoundingClientRect()
+      const x = box.x + box.width / 2
+      const y = box.y + box.height / 2
+      if (box.width <= 0 || box.height <= 0 || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false
+      const hit = document.elementFromPoint(x, y)
+      return document.querySelector('.antiPanel-navigator.fly') !== null &&
+        hit?.closest('.antiPanel-navigator.fly, .workbench-container > .cover.shown') != null
+    })
+  } catch {
+    // A detached target or closed page is not evidence of a navigator gap.
+    return false
+  }
+}
+
 /** Use real touch on the phone projects; desktop keeps its normal input mode. */
 export async function activate (page: Page, locator: Locator): Promise<void> {
   await expect(locator).toHaveCount(1)
-  if (await page.evaluate(() => navigator.maxTouchPoints > 0)) await locator.tap()
-  else await locator.click()
+  const touch = await page.evaluate(() => navigator.maxTouchPoints > 0)
+  try {
+    if (touch) await locator.tap()
+    else await locator.click()
+  } catch (error) {
+    if (await navigatorIntercepts(locator)) throw new NavigatorGapError(locator)
+    throw error
+  }
+}
+
+/** A URL and absence of overlays can both match before the authenticated app mounts. */
+export async function workbenchReady (page: Page): Promise<void> {
+  await expect(page.locator(
+    'button[id="app-workbench:string:ShowMenu"], button[id="app-workbench:string:HideMenu"]'
+  )).toBeVisible()
+  await expect(page.getByTestId('contentPanel')).toBeVisible()
+}
+
+/** Wait for the shell before deciding whether its navigator needs opening. */
+export async function openNavigator (page: Page): Promise<void> {
+  await workbenchReady(page)
+  const show = page.locator('button[id="app-workbench:string:ShowMenu"]')
+  if (await show.isVisible()) await activate(page, show)
+  await expect(page.locator('.antiPanel-navigator:not(.second)')).toBeVisible()
 }
 
 /** End each independent path at a fresh page, without carrying a panel or child popup. */
 export async function resetOverlays (page: Page, url: string): Promise<void> {
   await page.goto(url)
+  await workbenchReady(page)
   await expect(page.locator('.popupPanel, form[id="tracker:string:NewIssue"], .selectPopup')).toHaveCount(0)
 }
 
@@ -314,6 +365,8 @@ export const test = base.extend<MobileFixtures>({
     let client: PlatformClient | undefined
     let survey: MobileSurvey | undefined
     let tracing = false
+    let setupPhase = 'authenticate in browser'
+    let setupFailure: { phase: string, reason: string } | undefined
     let cleanupResult: Awaited<ReturnType<typeof cleanup>> = {
       outcome: 'failed',
       remaining: [],
@@ -324,15 +377,19 @@ export const test = base.extend<MobileFixtures>({
     const root = `${baseURL.replace(/\/$/, '')}/workbench/${encodeURIComponent(workspace)}`
     try {
       // Same authentication page objects as sanity/auth, with explicit per-lane credentials.
-      await page.goto(baseURL)
-      await new LoginPage(page).login(required('PLATFORM_USER'), required('MOBILE_PWA_PASSWORD'))
-      await new SelectWorkspacePage(page).selectWorkspace(workspace)
-      await page.waitForURL((url) => url.pathname.startsWith(`/workbench/${encodeURIComponent(workspace)}/`))
-      await page.evaluate(() => {
+      await page.addInitScript(() => {
         localStorage.setItem('#platform.testing.enabled', 'true')
         localStorage.setItem('#platform.lazy.loading', 'false')
         localStorage.setItem('#platform.notification.timeout', '0')
       })
+      await page.goto(baseURL)
+      await new LoginPage(page).login(required('PLATFORM_USER'), required('MOBILE_PWA_PASSWORD'))
+      setupPhase = 'select workspace'
+      await new SelectWorkspacePage(page).selectWorkspace(workspace)
+      await page.waitForURL((url) => url.pathname.startsWith(`/workbench/${encodeURIComponent(workspace)}/`))
+      setupPhase = 'authenticated workbench readiness'
+      await workbenchReady(page)
+      setupPhase = 'authenticate fixture client'
       client = await connect(baseURL, {
         email: required('PLATFORM_USER'),
         password: required('MOBILE_PWA_PASSWORD'),
@@ -340,9 +397,11 @@ export const test = base.extend<MobileFixtures>({
         socketFactory: NodeWebSocketFactory,
         connectionTimeout: 20_000
       })
+      setupPhase = 'seed and read back fixture/model viewlets'
       const fixtures = await seed(client, owned, projects)
       await page.context().tracing.start({ snapshots: false, screenshots: false, sources: false })
       tracing = true
+      let phase = 'setup'
       survey = {
         ...fixtures,
         client,
@@ -350,14 +409,38 @@ export const test = base.extend<MobileFixtures>({
         steps,
         behaviorStarted: false,
         failures,
+        phase (name) { phase = name },
         async step (name, action, recovery) {
           const result: MobileStepResult = { name, outcome: 'not-tested', cleanup: 'failed' }
           steps.push(result)
+          phase = 'reset and authenticated workbench readiness'
           try {
             await action()
             result.outcome = 'ui'
-          } catch {
-            failures.push(name)
+          } catch (error) {
+            const knownGap = error instanceof NavigatorGapError && ['iphone-15', 'pixel-7'].includes(info.project.name)
+            result.failure = {
+              kind: 'harness',
+              phase,
+              reason: error instanceof Error && error.name === 'TimeoutError'
+                ? 'Action timed out; no product cause established'
+                : 'Action or assertion failed; no product cause established'
+            }
+            if (knownGap) {
+              const screenshot = `${name.replace(/[^a-z]+/g, '-')}-navigator-gap`
+              try {
+                // Crop to the synthetic/static control, never the home list or private navigator entries.
+                await error.target.screenshot({
+                  path: info.outputPath(`${screenshot}.png`),
+                  mask: [page.locator('.antiPanel-navigator, .activityMessage, .avatar')]
+                })
+                result.gapEvidence = `${screenshot}.png`
+                result.failure = { kind: 'known-product-gap', phase, reason: NAVIGATOR_GAP_REASON }
+              } catch {
+                result.failure.reason = 'Navigator obstruction observed, but required masked evidence capture failed'
+              }
+            }
+            if (result.failure.kind === 'harness') failures.push(name)
             if (recovery !== undefined) {
               try {
                 await recovery()
@@ -370,6 +453,9 @@ export const test = base.extend<MobileFixtures>({
         }
       }
       await use(survey)
+    } catch (error) {
+      if (survey === undefined) setupFailure = { phase: setupPhase, reason: 'Setup failed before behavioral acceptance' }
+      throw error
     } finally {
       if (client !== undefined) {
         // Leave the fixture page before deleting data, so its queries cannot create more activity.
@@ -392,7 +478,7 @@ export const test = base.extend<MobileFixtures>({
         info.outputPath('mobile-result.json'),
         JSON.stringify(
           {
-            schemaVersion: 1,
+            schemaVersion: 2,
             project: info.project.name,
             test: info.title,
             target: process.env.MOBILE_PWA_TARGET,
@@ -400,6 +486,7 @@ export const test = base.extend<MobileFixtures>({
             baselineCommit: process.env.PC_DEVELOP_COMMIT,
             candidateCommit: process.env.MOBILE_PWA_COMMIT,
             behaviorStarted: survey?.behaviorStarted ?? false,
+            ...(setupFailure !== undefined ? { setupFailure } : {}),
             failures,
             steps,
             cleanup: cleanupResult
@@ -413,7 +500,7 @@ export const test = base.extend<MobileFixtures>({
         remaining: [],
         errors: []
       })
-      if (info.status === 'passed') expect(isUiSuccess(steps), 'UI acceptance includes verified cleanup').toBe(true)
+      if (info.status === 'passed') expect(isTask1Accepted(info.project.name, steps), 'Task 1 requires UI evidence or confirmed phone gaps, plus verified cleanup').toBe(true)
     }
   }
 })

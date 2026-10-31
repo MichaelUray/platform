@@ -15,7 +15,7 @@ The test opens the fixture project through the navigator, verifies distinct List
 opens and cancels the empty Create form, and locates description and comment in separate editor scopes.
 Phone projects repeat these paths in portrait and landscape. A fresh page resets overlays before each
 independent path. `MobileStepResult` distinguishes `ui`, `url-recovery` and `not-tested`; recovery never
-passes acceptance. Cleanup discovers trigger-created descendants, verifies remaining IDs separately,
+counts as UI acceptance. Cleanup discovers trigger-created descendants, verifies remaining IDs separately,
 and resets only this run's stale tab destinations. No attachment or text edits are performed.
 
 Task 1 acceptance runs exclusively against the built frontend at the explicit lane URL. The default
@@ -68,7 +68,69 @@ fixture-only masked PNGs, action-only traces, per-test results and assertion sum
 summary includes both deployment SHAs, checkout dirty state and a SHA-256 digest of the test sources.
 Traces deliberately omit DOM snapshots, network, resources, console messages, source files and fill
 arguments. Raw failure-context dumps are removed. These traces support action-order review; screenshots
-supply the visual evidence. Treat `ui` plus independent `cleanup: ok` as the acceptance contract.
+supply the visual evidence. Treat `ui` plus independent `cleanup: ok` as the product acceptance contract.
+
+## Live evidence review (2026-10-31)
+
+Reviewed the original `mobile-evidence-dH63xl/green/summary.json`, all five action traces and the eight
+fixture screenshots under the runner's `out/mobile-1/` directory, plus
+`tools/mobile-survey/impl/task1-evidence/candidate.log`. The log only repeats `invalid`; it adds no
+browser diagnostics. The original artifacts are preserved and have not been reclassified or rewritten.
+
+| Project | Exact trace boundary and supported finding |
+| --- | --- |
+| chromium | All four desktop steps have UI assertions and screenshots: List, Board, Create/cancel, separate editors. Cleanup passes. |
+| firefox | Same four successful desktop paths and screenshots; cleanup passes. |
+| webkit | Each path checks Show Menu once, takes no click/tap branch, then fails visibility of `.antiPanel-navigator` (`call@25`, `39`, `47`, `55`). List recovery fails the `tab-all` count (`call@31`). No viewlet, Create or editor is attempted; no screenshot exists. |
+| iphone-15 | Same boundary in portrait (`call@25`, `39`, `47`, `55`) and landscape (`65`, `79`, `87`, `95`). Both List recovery attempts fail the `tab-all` count (`31`, `71`). No menu tap, viewlet/Create/editor attempt or screenshot exists. |
+| pixel-7 | Portrait paths and landscape List/Board/editors stop at navigator visibility (`call@25`, `45`, `53`, `61`, `71`, `91`, `109`). Landscape Create gets past navigator visibility but cannot find the fixture project (`call@101`), before any project tap. Both direct URL recoveries find the List fixture (`call@37`, `83`); neither is touch success. No screenshot exists. |
+
+All five projects completed API fixture readback and verified cleanup. The old trace policy removes
+visibility results, error detail, DOM, network, console and navigation URLs. Consequently these artifacts
+cannot distinguish a WebKit reload/login/runtime failure from delayed shell readiness, nor prove a
+phone navigator overlay interception. In particular, **no menu activation or intercepted target action
+appears in any failed phone path**. Do not claim an established Create/Kanban product defect, or label
+all phone failures as known navigator gaps, from these artifacts. The exact underlying browser state
+requires a new instrumented run; the historical evidence remains incomplete.
+
+The confirmed harness defect is its readiness race: `goto()` followed by an empty-overlay count can
+succeed while the app is still loading. The immediate `ShowMenu.isVisible()` then skips opening the
+menu permanently. The repaired harness waits for the authenticated menu control and content panel
+before deciding whether to open it, scopes the primary navigator separately from a component
+navigator, and sets testing/lazy-loading options with an init script before application imports.
+Setup failures now carry a fixed phase/reason, and each failed step records its phase and a fixed
+diagnostic reason without copying private error text. Traces retain a safe error category.
+
+Only a failed real phone tap followed by a hit test proving that the floating navigator or its cover
+occupies the target control qualifies as `known-product-gap`. It records the original named step,
+phase, reason and a cropped, masked target screenshot. The reason refers to plan Tasks 2c/3 and states
+that downstream Create/Kanban behavior remains untested. A timeout alone, a missing project/selector,
+login/readiness failure or unexplained URL recovery remains a harness failure. Other product limitations
+need their own demonstrated cause before this allowlist is extended.
+
+Runner verdicts distinguish `green` (all UI paths), `green-with-known-gaps` (Task 1 reporting complete,
+phone product coverage still missing), `red` (the authenticated legacy viewlet assertion only) and
+`invalid` (harness/setup/cleanup/artifact failure). `knownProductGaps` and `harnessFailures` are separate
+named lists; `productAcceptance` stays false when any gap exists. All four steps remain mandatory in
+Chromium, Firefox and desktop WebKit. Both orientations and all four named steps remain mandatory on
+phones. The runner verifies a trace per project and the expected screenshot for each UI/gap step;
+aggregate screenshot counts cannot hide missing WebKit or phone evidence.
+
+Verification of this revision runs in `/tmp/mobile-1-checks-fgqzm6uo` with existing dependencies linked
+read-only: the offline contracts pass, including strict desktop requirements, named phone gaps,
+missing gap images and mixed gap/harness failures through the full runner. Strict no-emit TypeScript
+checking passes after the previously documented Faker compatibility adjustment **in the copy only**.
+`navigation.spec.ts` adds synthetic browser regressions for delayed shell mounting, measured phone
+interception and unrelated phone timeouts; it does not use a live lane. Browser execution was blocked
+at launch by the sandbox (`sandbox_host_linux.cc`, socket operation not permitted), before assertions.
+No new live acceptance result is claimed. Diagnostics and `rushx` are unavailable in this environment;
+package build/validation and an instrumented five-project live rerun remain outstanding. No commit made.
+
+To run the synthetic browser regressions with installed browsers, from `tests/sanity`:
+
+```bash
+npx --no-install playwright test -c tests/mobile-pwa.config.ts mobile/navigation.spec.ts --reporter=line
+```
 
 ## Implementation verification
 
