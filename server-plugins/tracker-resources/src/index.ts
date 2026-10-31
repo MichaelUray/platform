@@ -782,12 +782,13 @@ export async function OnDependencyShiftRequest (txes: Tx[], control: TriggerCont
     if (triggerIssues.length === 0) continue // fail-closed: foreign/unknown trigger issue
     const triggerIssue: ShiftIssueDoc = triggerIssues[0]
 
-    const sourceTxes = control.txes.filter((sourceTx): sourceTx is TxUpdateDoc<Issue> =>
-      sourceTx._class === core.class.TxUpdateDoc &&
-      (sourceTx as TxUpdateDoc<Issue>).objectClass === tracker.class.Issue &&
-      sourceTx.objectSpace === createTx.objectSpace &&
-      sourceTx.modifiedBy === createTx.modifiedBy &&
-      'dueDate' in (sourceTx as TxUpdateDoc<Issue>).operations
+    const sourceTxes = control.txes.filter(
+      (sourceTx): sourceTx is TxUpdateDoc<Issue> =>
+        sourceTx._class === core.class.TxUpdateDoc &&
+        (sourceTx as TxUpdateDoc<Issue>).objectClass === tracker.class.Issue &&
+        sourceTx.objectSpace === createTx.objectSpace &&
+        sourceTx.modifiedBy === createTx.modifiedBy &&
+        'dueDate' in (sourceTx as TxUpdateDoc<Issue>).operations
     )
     const { payloads: shiftedIssues, issues: shiftedDocs } = await resolveShiftPayload(
       control,
@@ -863,7 +864,11 @@ export async function OnDependencyShiftRequest (txes: Tx[], control: TriggerCont
         shiftedIssues: recipientShifts.slice(0, MAX_DISPLAYED_SHIFTED_ISSUES),
         cascadeToken
       }
-      const summaryTx = control.txFactory.createTxCreateDoc(tracker.class.DependencyShiftedNotification, space, notifData)
+      const summaryTx = control.txFactory.createTxCreateDoc(
+        tracker.class.DependencyShiftedNotification,
+        space,
+        notifData
+      )
       result.push(summaryTx)
 
       // Coverage belongs to this dedicated summary, never to another transaction's meta.

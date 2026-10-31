@@ -58,7 +58,7 @@ jest.mock('@hcengineering/server-contact', () => ({
 // Keep routing and provider settings real; stub only identity, templates and transport.
 jest.mock('@hcengineering/platform', () => ({
   ...jest.requireActual('@hcengineering/platform'),
-  getMetadata: (key: string) => key === 'server-notification:metadata:MailUrl' ? 'http://mail.test' : undefined
+  getMetadata: (key: string) => (key === 'server-notification:metadata:MailUrl' ? 'http://mail.test' : undefined)
 }))
 jest.mock('@hcengineering/server-notification-resources', () => {
   const actual = jest.requireActual<typeof import('@hcengineering/server-notification-resources')>(
@@ -69,7 +69,9 @@ jest.mock('@hcengineering/server-notification-resources', () => {
     getNotificationProviderControl: async () => new actual.NotificationProviderControl([], []),
     getReceiversInfo: async () => [{ account: 'acc-member', socialIds: ['member-social'] }],
     getContentByTemplate: async (_doc: unknown, _sender: unknown, type: string) => ({
-      text: type, html: `<p>${type}</p>`, subject: type
+      text: type,
+      html: `<p>${type}</p>`,
+      subject: type
     })
   }
 })
@@ -289,38 +291,46 @@ describe('OnDependencyShiftRequest', () => {
     expect(requestRemoved(res)).toBe(true)
   })
 
-  it.each([false, true])('carries coverage with the summary without editing input txes (reversed=%s)', async (reversed) => {
-    const control = makeControl()
-    const request = makeReqTx('social-real')
-    const dueDateUpdate = Object.freeze({
-      _id: 'date-tx',
-      _class: core.class.TxUpdateDoc,
-      objectClass: tracker.class.Issue,
-      objectId: 'issueB',
-      objectSpace: HOME,
-      modifiedBy: request.modifiedBy,
-      meta: Object.freeze({ public: 'unchanged' }),
-      operations: Object.freeze({ dueDate: DAY0 + 10 * DAY })
-    })
-    const otherAuthor = { ...dueDateUpdate, _id: 'other-author', modifiedBy: 'someone-else' }
-    const otherSpace = { ...dueDateUpdate, _id: 'other-space', objectSpace: FOREIGN }
-    const otherField = { ...dueDateUpdate, _id: 'other-field', operations: { title: 'new title' } }
-    control.txes = [dueDateUpdate, otherAuthor, otherSpace, otherField, request]
-    if (reversed) control.txes.reverse()
-    const before = JSON.stringify(control.txes)
+  it.each([false, true])(
+    'carries coverage with the summary without editing input txes (reversed=%s)',
+    async (reversed) => {
+      const control = makeControl()
+      const request = makeReqTx('social-real')
+      const dueDateUpdate = Object.freeze({
+        _id: 'date-tx',
+        _class: core.class.TxUpdateDoc,
+        objectClass: tracker.class.Issue,
+        objectId: 'issueB',
+        objectSpace: HOME,
+        modifiedBy: request.modifiedBy,
+        meta: Object.freeze({ public: 'unchanged' }),
+        operations: Object.freeze({ dueDate: DAY0 + 10 * DAY })
+      })
+      const otherAuthor = { ...dueDateUpdate, _id: 'other-author', modifiedBy: 'someone-else' }
+      const otherSpace = { ...dueDateUpdate, _id: 'other-space', objectSpace: FOREIGN }
+      const otherField = { ...dueDateUpdate, _id: 'other-field', operations: { title: 'new title' } }
+      control.txes = [dueDateUpdate, otherAuthor, otherSpace, otherField, request]
+      if (reversed) control.txes.reverse()
+      const before = JSON.stringify(control.txes)
 
-    const result = await OnDependencyShiftRequest([request], control)
-    const summary = requireSummary(result)
-    const coverage = control.contextCache.get('notification:provider-coverage')
-    expect(coverage.get('date-tx')).toEqual([{
-      summary: summary._id, recipient: MEMBER, provider: 'gmail:providers:EmailNotificationProvider',
-      type: tracker.ids.DependencyShiftedNotification, field: 'dueDate'
-    }])
-    expect([...coverage.keys()]).toEqual(['date-tx'])
-    expect(JSON.stringify(control.txes)).toBe(before)
-    expect(JSON.stringify(result)).not.toContain('notification:provider-coverage')
-    expect(result.every((tx: Tx) => tx.meta === undefined)).toBe(true)
-  })
+      const result = await OnDependencyShiftRequest([request], control)
+      const summary = requireSummary(result)
+      const coverage = control.contextCache.get('notification:provider-coverage')
+      expect(coverage.get('date-tx')).toEqual([
+        {
+          summary: summary._id,
+          recipient: MEMBER,
+          provider: 'gmail:providers:EmailNotificationProvider',
+          type: tracker.ids.DependencyShiftedNotification,
+          field: 'dueDate'
+        }
+      ])
+      expect([...coverage.keys()]).toEqual(['date-tx'])
+      expect(JSON.stringify(control.txes)).toBe(before)
+      expect(JSON.stringify(result)).not.toContain('notification:provider-coverage')
+      expect(result.every((tx: Tx) => tx.meta === undefined)).toBe(true)
+    }
+  )
 
   it('sends exactly one email for 201 moved issues with both email types enabled', async () => {
     const moved = Array.from({ length: 201 }, (_, i) => issue(`bulk${i}`, HOME, `PROJ-${i + 10}`, `Bulk ${i}`))
@@ -341,15 +351,19 @@ describe('OnDependencyShiftRequest', () => {
     expect(summary.attributes.shiftedIssues).toHaveLength(MAX_DISPLAYED_SHIFTED_ISSUES)
 
     const dueDateType = {
-      _id: 'tracker:notification:Issue_dueDate', field: 'dueDate', defaultEnabled: true,
-      txClasses: [core.class.TxUpdateDoc], objectClass: tracker.class.Issue
+      _id: 'tracker:notification:Issue_dueDate',
+      field: 'dueDate',
+      defaultEnabled: true,
+      txClasses: [core.class.TxUpdateDoc],
+      objectClass: tracker.class.Issue
     } as unknown as NotificationType
     const summaryType = { _id: tracker.ids.DependencyShiftedNotification, defaultEnabled: true } as NotificationType
-    const providers = [gmail.providers.EmailNotificationProvider, notification.providers.InboxNotificationProvider]
-      .map((_id) => ({ _id, defaultEnabled: true }))
+    const providers = [gmail.providers.EmailNotificationProvider, notification.providers.InboxNotificationProvider].map(
+      (_id) => ({ _id, defaultEnabled: true })
+    )
     control.modelDb = {
       findObject: () => summaryType,
-      getObject: (id: string) => id === summaryType._id ? summaryType : dueDateType,
+      getObject: (id: string) => (id === summaryType._id ? summaryType : dueDateType),
       findAllSync: (clazz: unknown) => {
         if (clazz === notification.class.NotificationProvider) return providers
         if (clazz === notification.class.NotificationType) return [dueDateType]
@@ -358,8 +372,10 @@ describe('OnDependencyShiftRequest', () => {
     }
     control.hierarchy = {
       getBaseClass: (clazz: unknown) => clazz,
-      isDerived: (clazz: unknown, parent: unknown) => clazz === parent ||
-        (clazz === tracker.class.DependencyShiftedNotification && parent === notification.class.CommonInboxNotification),
+      isDerived: (clazz: unknown, parent: unknown) =>
+        clazz === parent ||
+        (clazz === tracker.class.DependencyShiftedNotification &&
+          parent === notification.class.CommonInboxNotification),
       hasMixin: () => false
     }
     control.ctx = { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
@@ -375,13 +391,30 @@ describe('OnDependencyShiftRequest', () => {
     for (const update of updates) {
       const doc = { _id: update.objectId, _class: tracker.class.Issue, space: update.objectSpace } as Doc
       const result = await isShouldNotifyTx(
-        control, update, doc, receiver, false, false, new NotificationProviderControl([], [])
+        control,
+        update,
+        doc,
+        receiver,
+        false,
+        false,
+        new NotificationProviderControl([], [])
       )
       const txes = await getCommonNotificationTxes(
-        control.ctx, control, doc, {}, receiver, sender, doc._id, doc._class, doc.space, 1, result,
-        notification.class.CommonInboxNotification, update
+        control.ctx,
+        control,
+        doc,
+        {},
+        receiver,
+        sender,
+        doc._id,
+        doc._class,
+        doc.space,
+        1,
+        result,
+        notification.class.CommonInboxNotification,
+        update
       )
-      notifications.push(...txes as TxCreateDoc<InboxNotification>[])
+      notifications.push(...(txes as TxCreateDoc<InboxNotification>[]))
     }
     expect(notifications).toHaveLength(202) // All ordinary inbox notifications remain available.
     const originalFetch = globalThis.fetch
@@ -391,7 +424,8 @@ describe('OnDependencyShiftRequest', () => {
       await (await gmailResources()).trigger.NotificationsHandler(notifications, control)
       expect(fetchMock).toHaveBeenCalledTimes(1)
       expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
-        subject: summaryType._id, to: ['member@example.test']
+        subject: summaryType._id,
+        to: ['member@example.test']
       })
       expect(summary.attributes.intlParams?.count).toBe(201)
       expect(control.contextCache.get('notification:provider-coverage').size).toBe(201)
@@ -405,9 +439,14 @@ describe('OnDependencyShiftRequest', () => {
     const control = makeControl()
     const request = makeReqTx('social-real')
     const update = {
-      _id: 'date-tx', _class: core.class.TxUpdateDoc, space: core.space.Tx,
-      objectClass: tracker.class.Issue, objectId: 'issueB', objectSpace: HOME,
-      modifiedBy: request.modifiedBy, operations: { dueDate: DAY0 + 10 * DAY }
+      _id: 'date-tx',
+      _class: core.class.TxUpdateDoc,
+      space: core.space.Tx,
+      objectClass: tracker.class.Issue,
+      objectId: 'issueB',
+      objectSpace: HOME,
+      modifiedBy: request.modifiedBy,
+      operations: { dueDate: DAY0 + 10 * DAY }
     }
     control.txes = [update, request]
     control.txFactory = new TxFactory(core.account.System)
@@ -426,7 +465,8 @@ describe('OnDependencyShiftRequest', () => {
       adapterManager: { getAdapter: () => ({ tx: stored }) }
     } as unknown as PipelineContext
     const broadcast = new BroadcastMiddleware(pipeline, undefined, {
-      broadcast: sent, broadcastSessions: jest.fn()
+      broadcast: sent,
+      broadcastSessions: jest.fn()
     })
     const storage = await TxMiddleware.create(ctx, pipeline, broadcast)
     const txes = [update, request, ...generated] as Tx[]

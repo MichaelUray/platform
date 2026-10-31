@@ -65,13 +65,7 @@ import { NOTIFICATION_BODY_SIZE, ReceiverInfo, SenderInfo } from '@hcengineering
 import { markupToText, stripTags } from '@hcengineering/text-core'
 
 import { OnInboxNotificationCreate, PushNotificationsHandler } from './push'
-import {
-  Content,
-  ContextsCache,
-  ContextsCacheKey,
-  NotifyParams,
-  NotifyResult
-} from './types'
+import { Content, ContextsCache, ContextsCacheKey, NotifyParams, NotifyResult } from './types'
 import {
   getHTMLPresenter,
   getNotificationContent,

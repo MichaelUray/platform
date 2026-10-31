@@ -277,22 +277,23 @@ export async function isShouldNotifyTx (
 
       if (!allowed) continue
 
-      const covered = markers?.some((marker) => {
-        if (
-          marker.recipient !== receiver.account ||
-          marker.provider !== provider._id ||
-          marker.field !== type.field ||
-          !control.txes.some((summary) => summary._id === marker.summary)
-        ) {
-          return false
-        }
+      const covered =
+        markers?.some((marker) => {
+          if (
+            marker.recipient !== receiver.account ||
+            marker.provider !== provider._id ||
+            marker.field !== type.field ||
+            !control.txes.some((summary) => summary._id === marker.summary)
+          ) {
+            return false
+          }
 
-        const summaryType = control.modelDb.findObject(marker.type)
-        return (
-          summaryType !== undefined &&
-          isAllowed(control, receiver.socialIds, summaryType, provider, notificationControl)
-        )
-      }) ?? false
+          const summaryType = control.modelDb.findObject(marker.type)
+          return (
+            summaryType !== undefined &&
+            isAllowed(control, receiver.socialIds, summaryType, provider, notificationControl)
+          )
+        }) ?? false
 
       if (covered) {
         coveredProviders ??= new Set()
