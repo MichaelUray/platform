@@ -36,7 +36,10 @@ test('a lost browser session is reported as authentication failure before naviga
   expect((failure as Error).message).toContain('account-service cookies')
 })
 
-test('only WebKit restores the captured login token and reauthenticates through the UI', async ({ page, browserName }) => {
+test('only WebKit restores the captured login token and reauthenticates through the UI', async ({
+  page,
+  browserName
+}) => {
   const origin = 'http://mobile-harness.invalid'
   const token = 'synthetic-mobile-session-token'
   let uiLogins = 0
@@ -61,21 +64,32 @@ test('only WebKit restores the captured login token and reauthenticates through 
     }
     // WebKit's intercepted requests omit injected Cookie headers. The mock server
     // uses the context store; the live survey verifies real reload persistence.
-    const authenticated = (await page.context().cookies(origin))
-      .some((cookie) => cookie.name === 'account-metadata-Token' && cookie.value === token)
+    const authenticated = (await page.context().cookies(origin)).some(
+      (cookie) => cookie.name === 'account-metadata-Token' && cookie.value === token
+    )
     await route.fulfill({
       contentType: 'text/html',
-      body: path.startsWith('/workbench/') && authenticated
-        ? '<button id="app-workbench:string:ShowMenu">Menu</button><main data-id="contentPanel" style="height:40px"></main>'
-        : '<input name="email"><input name="current-password"><button onclick="location.href=\'/select\'">Log In</button>'
+      body:
+        path.startsWith('/workbench/') && authenticated
+          ? '<button id="app-workbench:string:ShowMenu">Menu</button><main data-id="contentPanel" style="height:40px"></main>'
+          : '<input name="email"><input name="current-password"><button onclick="location.href=\'/select\'">Log In</button>'
     })
   })
   const session = new MobileBrowserSession(page, {
-    browserName, baseURL: origin, workspace: 'synthetic', user: 'synthetic', password: 'synthetic'
+    browserName,
+    baseURL: origin,
+    workspace: 'synthetic',
+    user: 'synthetic',
+    password: 'synthetic'
   })
   try {
     await session.login()
-    expect(session.summary).toEqual({ logins: 1, restores: browserName === 'webkit' ? 1 : 0, restoreFailed: 0, uiRelogins: 0 })
+    expect(session.summary).toEqual({
+      logins: 1,
+      restores: browserName === 'webkit' ? 1 : 0,
+      restoreFailed: 0,
+      uiRelogins: 0
+    })
     const url = `${origin}/workbench/synthetic/tracker`
     if (browserName === 'webkit') {
       const auth = (await page.context().cookies(origin)).find((cookie) => cookie.name === 'account-metadata-Token')
@@ -124,14 +138,21 @@ test('phone timeouts without navigator interception remain harness errors', asyn
 // Deliberately contradict navigator so WebKit cannot silently downgrade phone actions to clicks.
 test('activation follows project input mode even when navigator reports the opposite', async ({ page }, info) => {
   const touch = info.project.use.hasTouch === true || info.project.use.isMobile === true
-  await page.setContent('<meta name="viewport" content="width=device-width, initial-scale=1"><button id="target">View</button>')
-  await page.evaluate((reportedPoints) => {
-    Object.defineProperty(navigator, 'maxTouchPoints', { value: reportedPoints, configurable: true })
-    document.querySelector('button')?.addEventListener('touchstart', () => {
-      document.body.dataset.touches = String(Number(document.body.dataset.touches ?? 0) + 1)
-    })
-    document.querySelector('button')?.addEventListener('click', () => { document.body.dataset.activated = 'true' })
-  }, touch ? 0 : 5)
+  await page.setContent(
+    '<meta name="viewport" content="width=device-width, initial-scale=1"><button id="target">View</button>'
+  )
+  await page.evaluate(
+    (reportedPoints) => {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: reportedPoints, configurable: true })
+      document.querySelector('button')?.addEventListener('touchstart', () => {
+        document.body.dataset.touches = String(Number(document.body.dataset.touches ?? 0) + 1)
+      })
+      document.querySelector('button')?.addEventListener('click', () => {
+        document.body.dataset.activated = 'true'
+      })
+    },
+    touch ? 0 : 5
+  )
   await activate(page, page.locator('#target'))
   await expect(page.locator('body')).toHaveAttribute('data-activated', 'true')
   expect(await page.locator('body').getAttribute('data-touches')).toBe(touch ? '1' : null)

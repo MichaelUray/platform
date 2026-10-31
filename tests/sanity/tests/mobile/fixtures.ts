@@ -75,7 +75,10 @@ export class MobileBrowserSession {
   readonly summary = { logins: 0, restores: 0, restoreFailed: 0, uiRelogins: 0 }
   private cookieAuth: { url: string, token: string } | undefined
 
-  constructor (private readonly page: Page, private readonly options: MobileSessionOptions) {
+  constructor (
+    private readonly page: Page,
+    private readonly options: MobileSessionOptions
+  ) {
     if (options.browserName === 'webkit') browserSessions.set(page, this)
   }
 
@@ -84,14 +87,16 @@ export class MobileBrowserSession {
     const pending: Array<Promise<void>> = []
     const onRequest = (request: Request): void => {
       if (request.method() !== 'PUT' || !new URL(request.url()).pathname.endsWith('/cookie')) return
-      pending.push((async () => {
-        const auth = (await request.allHeaders()).authorization
-        if (auth?.startsWith('Bearer ')) {
-          this.cookieAuth = { url: new URL(request.url()).origin, token: auth.slice(7) }
-        }
-      })().catch(() => {
-        // A missing token is reported by restore(), without exposing request headers.
-      }))
+      pending.push(
+        (async () => {
+          const auth = (await request.allHeaders()).authorization
+          if (auth?.startsWith('Bearer ')) {
+            this.cookieAuth = { url: new URL(request.url()).origin, token: auth.slice(7) }
+          }
+        })().catch(() => {
+          // A missing token is reported by restore(), without exposing request headers.
+        })
+      )
     }
     if (options.browserName === 'webkit') page.on('request', onRequest)
     try {
@@ -118,8 +123,8 @@ export class MobileBrowserSession {
     const context = this.page.context()
     const auth = this.cookieAuth
     const urls = auth === undefined ? [this.options.baseURL] : [auth.url, this.options.baseURL]
-    const hasCookie = async (): Promise<boolean> => (await context.cookies(urls))
-      .some((cookie) => cookie.name === AUTH_COOKIE && cookie.value !== '')
+    const hasCookie = async (): Promise<boolean> =>
+      (await context.cookies(urls)).some((cookie) => cookie.name === AUTH_COOKIE && cookie.value !== '')
     if (await hasCookie()) return
     if (auth !== undefined) {
       await context.addCookies([{ name: AUTH_COOKIE, value: auth.token, url: auth.url, httpOnly: true }])
@@ -157,7 +162,7 @@ async function ensureSession (page: Page, url: string): Promise<void> {
 /** Confirm actual hit interception, rather than interpreting a phone timeout as a product bug. */
 async function navigatorIntercepts (locator: Locator): Promise<boolean> {
   try {
-    if (await locator.count() !== 1 || !(await locator.isVisible()) || !(await locator.isEnabled())) return false
+    if ((await locator.count()) !== 1 || !(await locator.isVisible()) || !(await locator.isEnabled())) return false
     return await locator.evaluate((element) => {
       if (element.closest('.antiPanel-navigator') !== null) return false
       const box = element.getBoundingClientRect()
@@ -165,8 +170,10 @@ async function navigatorIntercepts (locator: Locator): Promise<boolean> {
       const y = box.y + box.height / 2
       if (box.width <= 0 || box.height <= 0 || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return false
       const hit = document.elementFromPoint(x, y)
-      return document.querySelector('.antiPanel-navigator.fly') !== null &&
+      return (
+        document.querySelector('.antiPanel-navigator.fly') !== null &&
         hit?.closest('.antiPanel-navigator.fly, .workbench-container > .cover.shown') != null
+      )
     })
   } catch {
     // A detached target or closed page is not evidence of a navigator gap.
@@ -182,16 +189,14 @@ export async function activate (page: Page, locator: Locator, info: TestInfo = b
     if (touch) await locator.tap()
     else await locator.click()
   } catch (error) {
-    if (touch && await navigatorIntercepts(locator)) throw new NavigatorGapError(locator)
+    if (touch && (await navigatorIntercepts(locator))) throw new NavigatorGapError(locator)
     throw error
   }
 }
 
 /** A URL and absence of overlays can both match before the authenticated app mounts. */
 export async function workbenchReady (page: Page): Promise<void> {
-  const menu = page.locator(
-    'button[id="app-workbench:string:ShowMenu"], button[id="app-workbench:string:HideMenu"]'
-  )
+  const menu = page.locator('button[id="app-workbench:string:ShowMenu"], button[id="app-workbench:string:HideMenu"]')
   const login = page.locator('input[name="email"]')
   await expect(menu.or(login)).toBeVisible()
   if (await login.isVisible()) throw new BrowserSessionError()
@@ -279,8 +284,9 @@ async function seed (
         client.getHierarchy().isDerived(item.targetClass, tracker.class.Issue)
     )
   const status = kind?.statuses[0]
-  if (kind === undefined || status === undefined)
-    {throw new Error('Project type needs a creatable Issue kind and status')}
+  if (kind === undefined || status === undefined) {
+    throw new Error('Project type needs a creatable Issue kind and status')
+  }
   const account = await client.getAccount()
   const projectId = generateId<Project>()
   const issueId = generateId<Issue>()
@@ -453,8 +459,9 @@ async function cleanup (
       })
     }
     const tabs = await client.findAll(workbench.class.WorkbenchTab, { attachedTo: account.uuid })
-    if (tabs.some((tab) => [...locationTokens].some((id) => decodeURIComponent(tab.location).includes(id))))
-      {errors.push('Stale fixture tab remains')}
+    if (tabs.some((tab) => [...locationTokens].some((id) => decodeURIComponent(tab.location).includes(id)))) {
+      errors.push('Stale fixture tab remains')
+    }
   } catch {
     errors.push('Cleanup tab verification failed')
   }
@@ -488,7 +495,9 @@ export const test = base.extend<MobileFixtures>({
       workspace,
       user: required('PLATFORM_USER'),
       password: required('MOBILE_PWA_PASSWORD'),
-      phase: (name) => { setupPhase = name }
+      phase: (name) => {
+        setupPhase = name
+      }
     })
     try {
       // Same authentication page objects as sanity/auth, with explicit per-lane credentials.
@@ -522,7 +531,9 @@ export const test = base.extend<MobileFixtures>({
         steps,
         behaviorStarted: false,
         failures,
-        phase (name) { phase = name },
+        phase (name) {
+          phase = name
+        },
         async step (name, action, recovery) {
           const result: MobileStepResult = { name, outcome: 'not-tested', cleanup: 'failed' }
           steps.push(result)
@@ -535,11 +546,12 @@ export const test = base.extend<MobileFixtures>({
             result.failure = {
               kind: 'harness',
               phase,
-              reason: error instanceof BrowserSessionError
-                ? error.message
-                : error instanceof Error && error.name === 'TimeoutError'
-                  ? 'Action timed out; no product cause established'
-                  : 'Action or assertion failed; no product cause established'
+              reason:
+                error instanceof BrowserSessionError
+                  ? error.message
+                  : error instanceof Error && error.name === 'TimeoutError'
+                    ? 'Action timed out; no product cause established'
+                    : 'Action or assertion failed; no product cause established'
             }
             if (knownGap) {
               const screenshot = `${name.replace(/[^a-z]+/g, '-')}-navigator-gap`
@@ -569,10 +581,11 @@ export const test = base.extend<MobileFixtures>({
       }
       await use(survey)
     } catch (error) {
-      if (survey === undefined) setupFailure = {
-        phase: setupPhase,
-        reason: error instanceof BrowserSessionError ? error.message : 'Setup failed before behavioral acceptance'
-      }
+      if (survey === undefined)
+        {setupFailure = {
+          phase: setupPhase,
+          reason: error instanceof BrowserSessionError ? error.message : 'Setup failed before behavioral acceptance'
+        }}
       throw error
     } finally {
       session.dispose()
@@ -625,7 +638,11 @@ export const test = base.extend<MobileFixtures>({
         remaining: [],
         errors: []
       })
-      if (survey !== undefined && info.status === 'passed') expect(isTask1Accepted(info.project.name, steps), 'Task 1 requires UI evidence or confirmed phone gaps, plus verified cleanup').toBe(true)
+      if (survey !== undefined && info.status === 'passed')
+        {expect(
+          isTask1Accepted(info.project.name, steps),
+          'Task 1 requires UI evidence or confirmed phone gaps, plus verified cleanup'
+        ).toBe(true)}
     }
   }
 })
