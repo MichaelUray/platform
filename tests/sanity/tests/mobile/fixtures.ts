@@ -159,7 +159,7 @@ async function navigatorIntercepts (locator: Locator): Promise<boolean> {
   try {
     if (await locator.count() !== 1 || !(await locator.isVisible()) || !(await locator.isEnabled())) return false
     return await locator.evaluate((element) => {
-      if (navigator.maxTouchPoints === 0 || element.closest('.antiPanel-navigator') !== null) return false
+      if (element.closest('.antiPanel-navigator') !== null) return false
       const box = element.getBoundingClientRect()
       const x = box.x + box.width / 2
       const y = box.y + box.height / 2
@@ -175,14 +175,14 @@ async function navigatorIntercepts (locator: Locator): Promise<boolean> {
 }
 
 /** Use real touch on the phone projects; desktop keeps its normal input mode. */
-export async function activate (page: Page, locator: Locator): Promise<void> {
+export async function activate (page: Page, locator: Locator, info: TestInfo = base.info()): Promise<void> {
   await expect(locator).toHaveCount(1)
-  const touch = await page.evaluate(() => navigator.maxTouchPoints > 0)
+  const touch = info.project.use.hasTouch === true || info.project.use.isMobile === true
   try {
     if (touch) await locator.tap()
     else await locator.click()
   } catch (error) {
-    if (await navigatorIntercepts(locator)) throw new NavigatorGapError(locator)
+    if (touch && await navigatorIntercepts(locator)) throw new NavigatorGapError(locator)
     throw error
   }
 }
@@ -605,6 +605,11 @@ export const test = base.extend<MobileFixtures>({
             baselineCommit: process.env.PC_DEVELOP_COMMIT,
             candidateCommit: process.env.MOBILE_PWA_COMMIT,
             behaviorStarted: survey?.behaviorStarted ?? false,
+            input: {
+              mode: info.project.use.hasTouch === true || info.project.use.isMobile === true ? 'touch' : 'mouse',
+              hasTouch: info.project.use.hasTouch === true,
+              isMobile: info.project.use.isMobile === true
+            },
             session: { workaround: browserName === 'webkit' ? 'webkit-url-cookie' : 'none', ...session.summary },
             ...(setupFailure !== undefined ? { setupFailure } : {}),
             failures,

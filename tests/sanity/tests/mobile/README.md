@@ -217,6 +217,31 @@ Changed harness files are copied to `prprep2` without switching either branch. N
 build, Docker operation, browser installation, formatting or commit is part of this verification.
 The diagnostics tool is unavailable; no-emit TypeScript and browser checks provide validation.
 
+## Project-configured touch evidence (review 3, 2026-10-31)
+
+Acceptance activation reads `testInfo.project.use.hasTouch` / `isMobile`. If either is true, it uses
+`locator.tap()`; desktop projects use `locator.click()`. Browser-reported `navigator.maxTouchPoints`
+is not an input-mode signal, including for navigator interception classification. Each result records
+`input.mode`, `hasTouch` and `isMobile`. Authentication continues using the existing sanity page objects;
+action-only acceptance traces begin after login, session verification and fixture setup.
+
+The synthetic interception contract derives its expectation from project settings. A separate regression
+forces navigator touch points to contradict those settings and checks actual `touchstart` delivery on
+phones and mouse activation on desktops. Synthetic pages that activate controls include the mobile
+viewport meta tag so WebKit uses the expected coordinate space.
+
+The external runner independently counts tap/click API calls in each sanitized acceptance trace and
+records per-project `inputEvidence` in `summary.json`, including failed action counts. Evidence is invalid
+if project/context input settings disagree, the configured input has no successful action, or any action
+uses the other input mode. This prevents click-only or mixed phone traces from passing acceptance.
+
+Review 3 verification uses the existing localhost:8083 stack and installed dependencies in `prprep2`.
+Evidence, source-copy digests, per-project outcomes and trace counts are recorded outside the repository
+under `tools/ghci/pc-review-2026-10-26/out/mobile-touch-review3-20261031/verification.json`;
+`mobile-1/mobile-evidence-*/green/summary.json` contains the runner assessment and action traces.
+The product is operator-supplied `pc/develop`; its served SHA remains independently unverified.
+No build, Docker operation, browser installation, formatting, branch change or commit is required.
+
 ## Implementation verification
 
 On 2026-10-31, branch `pcfix/mobile-01-testpaths`, local HEAD and `pc/develop` both matched

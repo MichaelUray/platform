@@ -8,7 +8,7 @@ test('navigator waits for the authenticated shell before deciding to open', asyn
   await page.route('http://mobile-harness.invalid/**', async (route) => {
     await route.fulfill({
       contentType: 'text/html',
-      body: `<script>
+      body: `<meta name="viewport" content="width=device-width, initial-scale=1"><script>
         setTimeout(() => {
           document.body.innerHTML = '<button id="app-workbench:string:ShowMenu">Menu</button>' +
             '<main data-id="contentPanel" style="height:40px"></main>' +
@@ -98,13 +98,14 @@ test('only WebKit restores the captured login token and reauthenticates through 
   }
 })
 
-test('only actual phone navigator interception establishes a known gap', async ({ page }) => {
+test('only actual phone navigator interception establishes a known gap', async ({ page }, info) => {
   await page.setContent(`<div class="workbench-container">
     <button id="target" style="position:fixed;left:20px;top:20px;width:80px;height:44px">View</button>
     <nav class="antiPanel-navigator fly" style="position:fixed;inset:0;background:white;z-index:10"></nav>
   </div>`)
   page.setDefaultTimeout(300)
-  const touch = await page.evaluate(() => navigator.maxTouchPoints > 0)
+  const touch = info.project.use.hasTouch === true || info.project.use.isMobile === true
+  await page.evaluate(() => Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true }))
   const failure = await activate(page, page.locator('#target')).catch((error: unknown) => error)
   expect(failure).toBeInstanceOf(Error)
   expect((failure as Error).name).toBe(touch ? 'NavigatorGapError' : 'TimeoutError')
@@ -118,4 +119,20 @@ test('phone timeouts without navigator interception remain harness errors', asyn
   const failure = await activate(page, page.locator('#target')).catch((error: unknown) => error)
   expect(failure).toBeInstanceOf(Error)
   expect((failure as Error).name).toBe('TimeoutError')
+})
+
+// Deliberately contradict navigator so WebKit cannot silently downgrade phone actions to clicks.
+test('activation follows project input mode even when navigator reports the opposite', async ({ page }, info) => {
+  const touch = info.project.use.hasTouch === true || info.project.use.isMobile === true
+  await page.setContent('<meta name="viewport" content="width=device-width, initial-scale=1"><button id="target">View</button>')
+  await page.evaluate((reportedPoints) => {
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: reportedPoints, configurable: true })
+    document.querySelector('button')?.addEventListener('touchstart', () => {
+      document.body.dataset.touches = String(Number(document.body.dataset.touches ?? 0) + 1)
+    })
+    document.querySelector('button')?.addEventListener('click', () => { document.body.dataset.activated = 'true' })
+  }, touch ? 0 : 5)
+  await activate(page, page.locator('#target'))
+  await expect(page.locator('body')).toHaveAttribute('data-activated', 'true')
+  expect(await page.locator('body').getAttribute('data-touches')).toBe(touch ? '1' : null)
 })
