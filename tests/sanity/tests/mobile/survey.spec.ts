@@ -17,7 +17,10 @@ async function navigatorOpen (page: Page): Promise<void> {
 async function navigatorClosed (page: Page): Promise<void> {
   const hide = page.locator('button[id="app-workbench:string:HideMenu"]')
   // On wide desktop the navigator is a sibling, rather than a covering overlay.
-  if (await hide.isVisible() && await page.locator('.antiPanel-navigator').evaluate(el => el.classList.contains('fly'))) {
+  if (
+    (await hide.isVisible()) &&
+    (await page.locator('.antiPanel-navigator').evaluate((el) => el.classList.contains('fly')))
+  ) {
     await activate(page, hide)
   }
 }
@@ -28,9 +31,11 @@ async function openProject (page: Page, survey: MobileSurvey): Promise<void> {
   const project = navigation.buttonProjectsParent().filter({ hasText: survey.project.name })
   const issues = navigation.issuesLinkForProject(survey.project.name)
   await expect(project).toHaveCount(1)
-  if (!await issues.isVisible()) await activate(page, project)
+  if (!(await issues.isVisible())) await activate(page, project)
   await activate(page, issues)
-  await expect(page).toHaveURL(url => url.pathname === new URL(`${survey.root}/tracker/${survey.project._id}/issues`).pathname)
+  await expect(page).toHaveURL(
+    (url) => url.pathname === new URL(`${survey.root}/tracker/${survey.project._id}/issues`).pathname
+  )
   await navigatorClosed(page)
 }
 
@@ -61,8 +66,10 @@ test('survey reaches real list board and create', async ({ page, survey }, info)
     await capture(page, info, 'legacy-viewlet-lookup')
     const legacy = tracker as unknown as { viewlet?: { IssueList?: string, IssueKanban?: string } }
     survey.behaviorStarted = true
-    expect({ list: legacy.viewlet?.IssueList, board: legacy.viewlet?.IssueKanban },
-      'Legacy survey must resolve concrete Issue viewlets').toEqual(survey.viewlets)
+    expect(
+      { list: legacy.viewlet?.IssueList, board: legacy.viewlet?.IssueKanban },
+      'Legacy survey must resolve concrete Issue viewlets'
+    ).toEqual(survey.viewlets)
   }
 
   survey.behaviorStarted = true
@@ -70,20 +77,24 @@ test('survey reaches real list board and create', async ({ page, survey }, info)
     if (orientation === 'landscape') {
       await page.setViewportSize({ width: initialViewport.height, height: initialViewport.width })
     }
-    await survey.step(`${orientation}: list`, async () => {
-      await resetOverlays(page, home)
-      await openProject(page, survey)
-      await chooseView(page, survey.viewlets.list)
-      const list = new IssuesPage(page).issuesList()
-      await expect(list).toBeVisible()
-      await expect(list).toContainText(survey.issue.title)
-      await expect(page.locator('.tracker-card')).toHaveCount(0)
-      await capture(page, info, `${orientation}-list`)
-    }, async () => {
-      await resetOverlays(page, projectURL)
-      await activate(page, new IssuesPage(page).modelSelectorAll())
-      await expect(new IssuesPage(page).issuesList()).toContainText(survey.issue.title)
-    })
+    await survey.step(
+      `${orientation}: list`,
+      async () => {
+        await resetOverlays(page, home)
+        await openProject(page, survey)
+        await chooseView(page, survey.viewlets.list)
+        const list = new IssuesPage(page).issuesList()
+        await expect(list).toBeVisible()
+        await expect(list).toContainText(survey.issue.title)
+        await expect(page.locator('.tracker-card')).toHaveCount(0)
+        await capture(page, info, `${orientation}-list`)
+      },
+      async () => {
+        await resetOverlays(page, projectURL)
+        await activate(page, new IssuesPage(page).modelSelectorAll())
+        await expect(new IssuesPage(page).issuesList()).toContainText(survey.issue.title)
+      }
+    )
 
     await survey.step(`${orientation}: board`, async () => {
       await resetOverlays(page, home)
@@ -113,7 +124,10 @@ test('survey reaches real list board and create', async ({ page, survey }, info)
       await expect(form).toHaveCount(0)
       await page.reload()
       const persisted = await survey.client.findAll(tracker.class.Issue, { space: survey.project._id })
-      expect(persisted.map(issue => issue._id), 'Cancel must not create an Issue').toEqual([survey.issue._id])
+      expect(
+        persisted.map((issue) => issue._id),
+        'Cancel must not create an Issue'
+      ).toEqual([survey.issue._id])
     })
 
     await survey.step(`${orientation}: separate editors`, async () => {
@@ -125,16 +139,20 @@ test('survey reaches real list board and create', async ({ page, survey }, info)
       const editors = issueEditors(page)
       await expect(editors.description).toHaveCount(1)
       await expect(editors.comment).toHaveCount(1)
-      expect(await editors.description.evaluate(element => element.closest('.text-input') === null),
-        'Description must not resolve to the comment composer').toBe(true)
-      expect(await editors.comment.evaluate(element => element.closest('.textInput') === null),
-        'Comment must not resolve to the description editor').toBe(true)
+      expect(
+        await editors.description.evaluate((element) => element.closest('.text-input') === null),
+        'Description must not resolve to the comment composer'
+      ).toBe(true)
+      expect(
+        await editors.comment.evaluate((element) => element.closest('.textInput') === null),
+        'Comment must not resolve to the description editor'
+      ).toBe(true)
       await capture(page, info, `${orientation}-editors`)
     })
   }
   // Cleanup is asserted by the fixture teardown, independently from these UI outcomes.
-  expect(survey.steps.map(step => step.outcome),
-    'Every view must be reached through the UI; URL recovery never passes').toEqual(
-    Array.from({ length: orientations.length * 4 }, () => 'ui')
-  )
+  expect(
+    survey.steps.map((step) => step.outcome),
+    'Every view must be reached through the UI; URL recovery never passes'
+  ).toEqual(Array.from({ length: orientations.length * 4 }, () => 'ui'))
 })

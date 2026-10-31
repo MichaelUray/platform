@@ -16,8 +16,8 @@ export function resolveIssueViewlets (
   boardDescriptor: Ref<ViewletDescriptor>
 ): { list: Ref<Viewlet>, board: Ref<Viewlet> } {
   const resolve = (descriptor: Ref<ViewletDescriptor>): Ref<Viewlet> => {
-    const matches = viewlets.filter(viewlet =>
-      viewlet.attachTo === issueClass && viewlet.descriptor === descriptor && viewlet.variant === undefined
+    const matches = viewlets.filter(
+      (viewlet) => viewlet.attachTo === issueClass && viewlet.descriptor === descriptor && viewlet.variant === undefined
     )
     if (matches.length !== 1) throw new Error('Expected exactly one primary Issue viewlet per descriptor')
     return matches[0]._id
@@ -27,5 +27,5 @@ export function resolveIssueViewlets (
 
 /** Recovery is useful diagnostic evidence, but cannot pass touch acceptance. */
 export function isUiSuccess (steps: MobileStepResult[]): boolean {
-  return steps.length > 0 && steps.every(step => step.outcome === 'ui' && step.cleanup === 'ok')
+  return steps.length > 0 && steps.every((step) => step.outcome === 'ui' && step.cleanup === 'ok')
 }
