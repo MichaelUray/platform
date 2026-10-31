@@ -41556,6 +41556,33 @@ importers:
 
   ../../tests/sanity:
     dependencies:
+      '@hcengineering/activity':
+        specifier: workspace:^0.7.0
+        version: link:../../plugins/activity
+      '@hcengineering/api-client':
+        specifier: workspace:^0.7.19
+        version: link:../../foundations/core/packages/api-client
+      '@hcengineering/notification':
+        specifier: workspace:^0.7.0
+        version: link:../../plugins/notification
+      '@hcengineering/platform':
+        specifier: workspace:^0.7.20
+        version: link:../../foundations/core/packages/platform
+      '@hcengineering/task':
+        specifier: workspace:^0.7.0
+        version: link:../../plugins/task
+      '@hcengineering/tracker':
+        specifier: workspace:^0.7.0
+        version: link:../../plugins/tracker
+      '@hcengineering/tracker-resources':
+        specifier: workspace:^0.7.0
+        version: link:../../plugins/tracker-resources
+      '@hcengineering/view':
+        specifier: workspace:^0.7.0
+        version: link:../../plugins/view
+      '@hcengineering/workbench':
+        specifier: workspace:^0.7.0
+        version: link:../../plugins/workbench
       '@hcengineering/account':
         specifier: workspace:^0.7.0
         version: link:../../server/account
@@ -41578,6 +41605,18 @@ importers:
         specifier: ^16.4.5
         version: 16.6.1
     devDependencies:
+      esbuild:
+        specifier: ^0.25.10
+        version: 0.25.12
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
+      svelte:
+        specifier: ^4.2.20
+        version: 4.2.20
+      svelte-preprocess:
+        specifier: ^5.1.4
+        version: 5.1.4(@babel/core@7.28.5)(postcss-load-config@4.0.2(postcss@8.5.28)(ts-node@10.9.2(@types/node@24.13.6)(typescript@5.9.3)))(postcss@8.5.28)(sass@1.93.3)(svelte@4.2.20)(typescript@5.9.3)
       '@faker-js/faker':
         specifier: ^10.6.0
         version: 10.6.0

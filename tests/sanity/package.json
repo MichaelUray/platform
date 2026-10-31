@@ -44,7 +44,11 @@
     "allure-js-commons": "^3.12.1",
     "@faker-js/faker": "^10.6.0",
     "eslint-plugin-svelte": "^3.23.0",
-    "eslint-config-love": "^157.0.0"
+    "eslint-config-love": "^157.0.0",
+    "esbuild": "^0.25.10",
+    "svelte": "^4.2.20",
+    "svelte-preprocess": "^5.1.4",
+    "fflate": "^0.8.2"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
@@ -53,6 +57,15 @@
     "@hcengineering/client-resources": "workspace:^0.7.19",
     "@hcengineering/account": "workspace:^0.7.0",
     "@hcengineering/account-client": "workspace:^0.7.25",
-    "@hcengineering/server-token": "workspace:^0.7.18"
+    "@hcengineering/server-token": "workspace:^0.7.18",
+    "@hcengineering/api-client": "workspace:^0.7.19",
+    "@hcengineering/platform": "workspace:^0.7.20",
+    "@hcengineering/tracker": "workspace:^0.7.0",
+    "@hcengineering/view": "workspace:^0.7.0",
+    "@hcengineering/task": "workspace:^0.7.0",
+    "@hcengineering/activity": "workspace:^0.7.0",
+    "@hcengineering/notification": "workspace:^0.7.0",
+    "@hcengineering/workbench": "workspace:^0.7.0",
+    "@hcengineering/tracker-resources": "workspace:^0.7.0"
   }
 }
