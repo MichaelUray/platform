@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: EPL-2.0
 import { test, expect } from '@playwright/test'
-import { activate, openNavigator, resetOverlays } from './fixtures'
+import { activate, MobileBrowserSession, openNavigator, resetOverlays } from './fixtures'
 import { NAVIGATOR_GAP_REASON } from './contracts'
 
 // Synthetic pages exercise harness behavior without a deployment, login or fixture writes.
@@ -34,6 +34,68 @@ test('a lost browser session is reported as authentication failure before naviga
   expect(failure).toBeInstanceOf(Error)
   expect((failure as Error).name).toBe('BrowserSessionError')
   expect((failure as Error).message).toContain('account-service cookies')
+})
+
+test('only WebKit restores the captured login token and reauthenticates through the UI', async ({ page, browserName }) => {
+  const origin = 'http://mobile-harness.invalid'
+  const token = 'synthetic-mobile-session-token'
+  let uiLogins = 0
+  await page.route(`${origin}/**`, async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (path === '/cookie') {
+      expect(request.method()).toBe('PUT')
+      expect((await request.allHeaders()).authorization).toBe(`Bearer ${token}`)
+      await route.fulfill({ body: '' })
+      return
+    }
+    if (path === '/select') {
+      uiLogins++
+      await route.fulfill({
+        contentType: 'text/html',
+        body: `<div class="workspace" onclick="fetch('/cookie', {method:'PUT', headers:{Authorization:'Bearer ${token}'}})
+          .then(() => { history.pushState({}, '', '/workbench/synthetic/tracker');
+          document.body.innerHTML = '<button id=app-workbench:string:ShowMenu>Menu</button><main data-id=contentPanel style=height:40px></main>'; })">synthetic</div>`
+      })
+      return
+    }
+    // WebKit's intercepted requests omit injected Cookie headers. The mock server
+    // uses the context store; the live survey verifies real reload persistence.
+    const authenticated = (await page.context().cookies(origin))
+      .some((cookie) => cookie.name === 'account-metadata-Token' && cookie.value === token)
+    await route.fulfill({
+      contentType: 'text/html',
+      body: path.startsWith('/workbench/') && authenticated
+        ? '<button id="app-workbench:string:ShowMenu">Menu</button><main data-id="contentPanel" style="height:40px"></main>'
+        : '<input name="email"><input name="current-password"><button onclick="location.href=\'/select\'">Log In</button>'
+    })
+  })
+  const session = new MobileBrowserSession(page, {
+    browserName, baseURL: origin, workspace: 'synthetic', user: 'synthetic', password: 'synthetic'
+  })
+  try {
+    await session.login()
+    expect(session.summary).toEqual({ logins: 1, restores: browserName === 'webkit' ? 1 : 0, restoreFailed: 0, uiRelogins: 0 })
+    const url = `${origin}/workbench/synthetic/tracker`
+    if (browserName === 'webkit') {
+      const auth = (await page.context().cookies(origin)).find((cookie) => cookie.name === 'account-metadata-Token')
+      expect(auth).toMatchObject({ value: token, httpOnly: true, domain: 'mobile-harness.invalid' })
+      await resetOverlays(page, url)
+      expect(uiLogins).toBe(1)
+      await page.context().clearCookies()
+      await resetOverlays(page, url)
+      expect(session.summary).toEqual({ logins: 2, restores: 2, restoreFailed: 0, uiRelogins: 1 })
+      expect(uiLogins).toBe(2)
+      expect(page.url()).toBe(url)
+    } else {
+      const failure = await resetOverlays(page, url).catch((error: unknown) => error)
+      expect((failure as Error).name).toBe('BrowserSessionError')
+      expect(uiLogins).toBe(1)
+      expect(await page.context().cookies(origin)).toEqual([])
+    }
+  } finally {
+    session.dispose()
+  }
 })
 
 test('only actual phone navigator interception establishes a known gap', async ({ page }) => {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: EPL-2.0
 import { test as base, expect } from '@playwright/test'
-import type { Locator, Page, TestInfo } from '@playwright/test'
+import type { Locator, Page, Request, TestInfo } from '@playwright/test'
 import { connect, NodeWebSocketFactory } from '@hcengineering/api-client'
 import type { PlatformClient } from '@hcengineering/api-client'
 import core, { generateId } from '@hcengineering/core'
@@ -55,6 +55,102 @@ class BrowserSessionError extends Error {
   constructor () {
     super('Browser returned to login while loading the authenticated workbench; check account-service cookies')
     this.name = 'BrowserSessionError'
+  }
+}
+
+interface MobileSessionOptions {
+  browserName: 'chromium' | 'firefox' | 'webkit'
+  baseURL: string
+  workspace: string
+  user: string
+  password: string
+  phase?: (name: string) => void
+}
+
+const AUTH_COOKIE = 'account-metadata-Token'
+const browserSessions = new WeakMap<Page, MobileBrowserSession>()
+
+/** Test-only WebKit workaround for local stacks that set Domain=localhost. */
+export class MobileBrowserSession {
+  readonly summary = { logins: 0, restores: 0, restoreFailed: 0, uiRelogins: 0 }
+  private cookieAuth: { url: string, token: string } | undefined
+
+  constructor (private readonly page: Page, private readonly options: MobileSessionOptions) {
+    if (options.browserName === 'webkit') browserSessions.set(page, this)
+  }
+
+  async login (): Promise<void> {
+    const { page, options } = this
+    const pending: Array<Promise<void>> = []
+    const onRequest = (request: Request): void => {
+      if (request.method() !== 'PUT' || !new URL(request.url()).pathname.endsWith('/cookie')) return
+      pending.push((async () => {
+        const auth = (await request.allHeaders()).authorization
+        if (auth?.startsWith('Bearer ')) {
+          this.cookieAuth = { url: new URL(request.url()).origin, token: auth.slice(7) }
+        }
+      })().catch(() => {
+        // A missing token is reported by restore(), without exposing request headers.
+      }))
+    }
+    if (options.browserName === 'webkit') page.on('request', onRequest)
+    try {
+      options.phase?.('authenticate in browser')
+      await page.goto(`${options.baseURL.replace(/\/$/, '')}/login/login`)
+      await new LoginPage(page).login(options.user, options.password)
+      options.phase?.('select workspace')
+      await new SelectWorkspacePage(page).selectWorkspace(options.workspace)
+      await page.waitForURL((url) => url.pathname.startsWith(`/workbench/${encodeURIComponent(options.workspace)}/`))
+      options.phase?.('authenticated workbench readiness')
+      await workbenchReady(page)
+      await Promise.all(pending)
+      this.summary.logins++
+      if (options.browserName === 'webkit') {
+        options.phase?.('restore WebKit browser authentication')
+        await this.restore()
+      }
+    } finally {
+      page.off('request', onRequest)
+    }
+  }
+
+  private async restore (): Promise<void> {
+    const context = this.page.context()
+    const auth = this.cookieAuth
+    const urls = auth === undefined ? [this.options.baseURL] : [auth.url, this.options.baseURL]
+    const hasCookie = async (): Promise<boolean> => (await context.cookies(urls))
+      .some((cookie) => cookie.name === AUTH_COOKIE && cookie.value !== '')
+    if (await hasCookie()) return
+    if (auth !== undefined) {
+      await context.addCookies([{ name: AUTH_COOKIE, value: auth.token, url: auth.url, httpOnly: true }])
+      if (await hasCookie()) {
+        this.summary.restores++
+        return
+      }
+    }
+    this.summary.restoreFailed++
+  }
+
+  async relogin (url: string): Promise<void> {
+    if (this.options.browserName !== 'webkit') throw new BrowserSessionError()
+    this.summary.uiRelogins++
+    await this.login()
+    await this.page.goto(url)
+    await workbenchReady(this.page)
+  }
+
+  dispose (): void {
+    browserSessions.delete(this.page)
+  }
+}
+
+async function ensureSession (page: Page, url: string): Promise<void> {
+  try {
+    await workbenchReady(page)
+  } catch (error) {
+    const session = browserSessions.get(page)
+    if (!(error instanceof BrowserSessionError) || session === undefined) throw error
+    await session.relogin(url)
   }
 }
 
@@ -113,7 +209,7 @@ export async function openNavigator (page: Page): Promise<void> {
 /** End each independent path at a fresh page, without carrying a panel or child popup. */
 export async function resetOverlays (page: Page, url: string): Promise<void> {
   await page.goto(url)
-  await workbenchReady(page)
+  await ensureSession(page, url)
   await expect(page.locator('.popupPanel, form[id="tracker:string:NewIssue"], .selectPopup')).toHaveCount(0)
 }
 
@@ -366,7 +462,7 @@ async function cleanup (
 }
 
 export const test = base.extend<MobileFixtures>({
-  survey: async ({ page, baseURL }, use, info) => {
+  survey: async ({ page, baseURL, browserName }, use, info) => {
     info.setTimeout(240_000)
     const owned = new Set<Ref<Doc>>()
     const projects = new Set<Ref<Project>>()
@@ -386,6 +482,14 @@ export const test = base.extend<MobileFixtures>({
     const workspace = required('PLATFORM_WS')
     if (baseURL === undefined) throw new Error('An explicit target URL is required')
     const root = `${baseURL.replace(/\/$/, '')}/workbench/${encodeURIComponent(workspace)}`
+    const session = new MobileBrowserSession(page, {
+      browserName,
+      baseURL,
+      workspace,
+      user: required('PLATFORM_USER'),
+      password: required('MOBILE_PWA_PASSWORD'),
+      phase: (name) => { setupPhase = name }
+    })
     try {
       // Same authentication page objects as sanity/auth, with explicit per-lane credentials.
       await page.addInitScript(() => {
@@ -393,16 +497,11 @@ export const test = base.extend<MobileFixtures>({
         localStorage.setItem('#platform.lazy.loading', 'false')
         localStorage.setItem('#platform.notification.timeout', '0')
       })
-      await page.goto(baseURL)
-      await new LoginPage(page).login(required('PLATFORM_USER'), required('MOBILE_PWA_PASSWORD'))
-      setupPhase = 'select workspace'
-      await new SelectWorkspacePage(page).selectWorkspace(workspace)
-      await page.waitForURL((url) => url.pathname.startsWith(`/workbench/${encodeURIComponent(workspace)}/`))
-      setupPhase = 'authenticated workbench readiness'
-      await workbenchReady(page)
+      await session.login()
       setupPhase = 'verify persistent browser authentication'
+      const authenticatedURL = page.url()
       await page.reload()
-      await workbenchReady(page)
+      await ensureSession(page, authenticatedURL)
       setupPhase = 'authenticate fixture client'
       client = await connect(baseURL, {
         email: required('PLATFORM_USER'),
@@ -476,6 +575,7 @@ export const test = base.extend<MobileFixtures>({
       }
       throw error
     } finally {
+      session.dispose()
       if (client !== undefined) {
         // Leave the fixture page before deleting data, so its queries cannot create more activity.
         try {
@@ -505,6 +605,7 @@ export const test = base.extend<MobileFixtures>({
             baselineCommit: process.env.PC_DEVELOP_COMMIT,
             candidateCommit: process.env.MOBILE_PWA_COMMIT,
             behaviorStarted: survey?.behaviorStarted ?? false,
+            session: { workaround: browserName === 'webkit' ? 'webkit-url-cookie' : 'none', ...session.summary },
             ...(setupFailure !== undefined ? { setupFailure } : {}),
             failures,
             steps,

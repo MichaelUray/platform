@@ -185,6 +185,38 @@ passed with the installed dependencies. Three additional Firefox repeats passed 
 verified cleanup. A diagnostics tool is unavailable; builds and formatting were
 excluded by the live-debug task. Temporary logging is removed from the harness.
 
+## Owner-approved WebKit session workaround (2026-10-31)
+
+The owner approved a test-only workaround following `tools/ghci/uilib/huly.mjs`. This supersedes the
+WebKit authentication blockers reported above. For the `webkit` and `iphone-15` projects only, the
+fixture captures the Bearer token from the browser's actual `PUT /cookie` request during UI login.
+If the authentication cookie is absent, it restores `account-metadata-Token` using
+`context.addCookies` with the request origin as `url`, plus `httpOnly`, without a `domain` attribute.
+The normal full-reload authentication check still runs before fixture writes. If a subsequent fresh
+load returns to login, WebKit may re-login through the same UI page objects once and return to the
+requested destination. Other browsers still fail a lost session normally.
+
+Each `mobile-result.json` and the runner's `summary.json` results include a credential-free `session`
+object: `workaround`, `logins`, `restores`, `restoreFailed`, and `uiRelogins`. Tokens and request headers
+are never included in those results. The runner continues sanitizing traces and masking screenshots.
+
+The first five-project live run passed all 28 paths: Chromium, Firefox and desktop WebKit 4/4 each;
+iPhone 15 and Pixel 7 8/8 each, in portrait and landscape. WebKit and iPhone each restored one cookie;
+the other projects restored none. No UI re-login was necessary, and cleanup passed for every project.
+No phone product gap was measured. The 25 synthetic browser checks include capture/restoration,
+WebKit UI re-login after cookie loss, and unchanged lost-session failure in the other engines.
+All 10 offline runner contracts and strict no-emit TypeScript checking passed.
+
+Final verification artifacts are stored outside the repository under
+`tools/ghci/pc-review-2026-10-26/out/mobile-webkit-20261031-015459/`; the five-project runner summary
+is in `mobile-1/mobile-evidence-*/green/summary.json`. `verification.json` records the source and
+execution checkout revisions, matching source digests, validation results and session totals.
+The stack's product is `pc/develop` as supplied by the operator; the served SHA is not independently
+verified. The checkouts have different HEADs, so matching test sources are verified independently.
+Changed harness files are copied to `prprep2` without switching either branch. No product change,
+build, Docker operation, browser installation, formatting or commit is part of this verification.
+The diagnostics tool is unavailable; no-emit TypeScript and browser checks provide validation.
+
 ## Implementation verification
 
 On 2026-10-31, branch `pcfix/mobile-01-testpaths`, local HEAD and `pc/develop` both matched
