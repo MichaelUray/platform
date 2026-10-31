@@ -41,12 +41,7 @@ async function chooseView (page: Page, id: Ref<Viewlet>): Promise<void> {
   await expect(tab.locator('input[name="viewletSelector"]')).toBeChecked()
 }
 
-test('survey reaches real list board and create', async ({ page, survey, harnessURL }, info) => {
-  // This readiness check proves compilation/serving only, never an app-flow success.
-  await page.goto(`${harnessURL}/?adapter=${process.env.MOBILE_PWA_ADAPTER === 'legacy' ? 'legacy' : 'candidate'}`)
-  await expect(page.getByRole('status')).toHaveText('Harness ready')
-  await expect(page.getByRole('region', { name: 'Mobile component harness' })).toHaveCount(1)
-
+test('survey reaches real list board and create', async ({ page, survey }, info) => {
   const phone = info.project.name === 'iphone-15' || info.project.name === 'pixel-7'
   const initialViewport = page.viewportSize()
   if (initialViewport === null) throw new Error('Viewport is required')

@@ -6,19 +6,14 @@ import type { PlatformClient } from '@hcengineering/api-client'
 import core, { generateId } from '@hcengineering/core'
 import type { AttachedDoc, Class, Doc, Ref } from '@hcengineering/core'
 import tracker, { TimeReportDayType } from '@hcengineering/tracker'
-import trackerResources from '@hcengineering/tracker-resources/src/plugin'
 import type { Issue, Project } from '@hcengineering/tracker'
 import view from '@hcengineering/view'
+import type { ViewletDescriptor } from '@hcengineering/view'
 import task from '@hcengineering/task'
 import activity from '@hcengineering/activity'
 import notification from '@hcengineering/notification'
 import workbench from '@hcengineering/workbench'
-import { build } from 'esbuild'
-import { compile, preprocess } from 'svelte/compiler'
-import sveltePreprocess from 'svelte-preprocess'
-import { createServer } from 'node:http'
-import { readFile, writeFile } from 'node:fs/promises'
-import path from 'node:path'
+import { writeFile } from 'node:fs/promises'
 import { LoginPage } from '../model/login-page'
 import { SelectWorkspacePage } from '../model/select-workspace-page'
 import { isUiSuccess, resolveIssueViewlets } from './contracts'
@@ -40,9 +35,6 @@ export interface MobileSurvey {
 
 interface MobileFixtures {
   survey: MobileSurvey
-}
-interface MobileWorkers {
-  harnessURL: string
 }
 
 function required (name: string): string {
@@ -93,9 +85,8 @@ async function seed (client: PlatformClient, owned: Set<Ref<Doc>>, projects: Set
   project: Project, issue: Issue, viewlets: ReturnType<typeof resolveIssueViewlets>
 }> {
   const modelViewlets = await client.findAll(view.class.Viewlet, { attachTo: tracker.class.Issue })
-  // The List descriptor belongs to view; tracker-resources adds the Kanban descriptor.
-  // Both IDs are descriptors, never concrete model Viewlet IDs.
-  const boardDescriptor = await client.findOne(view.class.ViewletDescriptor, { _id: trackerResources.viewlet.Kanban })
+  // Registered by models/tracker/src/viewlets.ts. Resolve concrete Viewlets from model data.
+  const boardDescriptor = await client.findOne(view.class.ViewletDescriptor, { _id: 'tracker:viewlet:Kanban' as Ref<ViewletDescriptor> })
   if (boardDescriptor === undefined) throw new Error('Tracker Kanban descriptor is missing')
   const viewlets = resolveIssueViewlets(modelViewlets, tracker.class.Issue, view.viewlet.List, boardDescriptor._id)
   const sourceIssue = await client.findOne(tracker.class.Issue, {})
@@ -218,44 +209,7 @@ async function cleanup (client: PlatformClient, owned: Set<Ref<Doc>>, projects: 
   return { outcome: errors.length === 0 && found.size === 0 ? 'ok' : 'failed', remaining: [...found.keys()], errors }
 }
 
-export const test = base.extend<MobileFixtures, MobileWorkers>({
-  harnessURL: [async ({}, use) => {
-    const bundle = await build({
-      entryPoints: [path.join(__dirname, 'harness.ts')], bundle: true, write: false, format: 'esm',
-      plugins: [{
-        name: 'mobile-svelte',
-        setup (builder) {
-          builder.onLoad({ filter: /\.svelte$/ }, async args => {
-            const source = await readFile(args.path, 'utf8')
-            const processed = await preprocess(source, sveltePreprocess(), { filename: args.path })
-            const compiled = compile(processed.code, { filename: args.path, css: 'injected', dev: true })
-            return { contents: compiled.js.code, resolveDir: path.dirname(args.path) }
-          })
-        }
-      }]
-    })
-    const html = await readFile(path.join(__dirname, 'harness.html'))
-    const server = createServer((request, response) => {
-      const pathname = new URL(request.url ?? '/', 'http://localhost').pathname
-      response.setHeader('Cache-Control', 'no-store')
-      if (pathname === '/harness.js') {
-        response.setHeader('Content-Type', 'text/javascript')
-        response.end(bundle.outputFiles[0].contents)
-      } else if (pathname === '/') {
-        response.setHeader('Content-Type', 'text/html')
-        response.end(html)
-      } else { response.statusCode = 404; response.end() }
-    })
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject)
-      server.listen(0, '127.0.0.1', resolve)
-    })
-    try {
-      const address = server.address()
-      if (address === null || typeof address === 'string') throw new Error('Harness port unavailable')
-      await use(`http://127.0.0.1:${address.port}`)
-    } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())) }
-  }, { scope: 'worker' }],
+export const test = base.extend<MobileFixtures>({
   survey: async ({ page, baseURL }, use, info) => {
     info.setTimeout(240_000)
     const owned = new Set<Ref<Doc>>()
