@@ -581,11 +581,12 @@ export const test = base.extend<MobileFixtures>({
       }
       await use(survey)
     } catch (error) {
-      if (survey === undefined)
-        {setupFailure = {
+      if (survey === undefined) {
+        setupFailure = {
           phase: setupPhase,
           reason: error instanceof BrowserSessionError ? error.message : 'Setup failed before behavioral acceptance'
-        }}
+        }
+      }
       throw error
     } finally {
       session.dispose()
@@ -638,11 +639,12 @@ export const test = base.extend<MobileFixtures>({
         remaining: [],
         errors: []
       })
-      if (survey !== undefined && info.status === 'passed')
-        {expect(
+      if (survey !== undefined && info.status === 'passed') {
+        expect(
           isTask1Accepted(info.project.name, steps),
           'Task 1 requires UI evidence or confirmed phone gaps, plus verified cleanup'
-        ).toBe(true)}
+        ).toBe(true)
+      }
     }
   }
 })
