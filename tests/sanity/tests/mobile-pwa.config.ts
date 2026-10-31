@@ -19,7 +19,7 @@ export default defineConfig({
     testIdAttribute: 'data-id',
     locale: 'en-US',
     contextOptions: { reducedMotion: 'reduce' },
-    // Evidence starts only after authentication, with no DOM/network snapshots.
+    // Trace collection starts after authentication, with no DOM/network snapshots.
     trace: 'off',
     screenshot: 'off',
     video: 'off'

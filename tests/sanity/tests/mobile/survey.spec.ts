@@ -55,7 +55,7 @@ test('survey reaches real list board and create', async ({ page, survey }, info)
   const home = `${survey.root}/tracker/all-issues`
 
   // This adapter reproduces the old survey's plugin lookup after successful setup.
-  // A missing browser/import/login is not accepted as behavioral red evidence.
+  // Browser, import or login failures cannot establish a regression in UI behavior.
   if (process.env.MOBILE_PWA_ADAPTER === 'legacy') {
     for (const name of ['list', 'board', 'create', 'separate editors']) {
       survey.steps.push({ name: `legacy: ${name}`, outcome: 'not-tested', cleanup: 'failed' })

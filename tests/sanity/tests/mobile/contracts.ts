@@ -17,7 +17,7 @@ export interface MobileStepResult {
 export const NAVIGATOR_GAP_REASON =
   'Floating navigator intercepts the target control (plan Tasks 2c/3); downstream Create/Kanban behavior is untested'
 
-/** Only a measured phone navigator obstruction is an established Task 1 product gap. */
+/** Only a measured phone navigator obstruction qualifies as a known product gap. */
 export function isKnownPhoneGap (project: string, step: MobileStepResult): boolean {
   return (
     ['iphone-15', 'pixel-7'].includes(project) &&

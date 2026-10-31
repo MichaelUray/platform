@@ -291,7 +291,7 @@ async function seed (
   const projectId = generateId<Project>()
   const issueId = generateId<Issue>()
   const identifier = `M${projectId.slice(-10).toUpperCase()}`
-  // Own IDs before the first write so a lost response cannot escape cleanup.
+  // Track fixture IDs before the first write so a lost response cannot escape cleanup.
   owned.add(projectId)
   projects.add(projectId)
   owned.add(issueId)
@@ -382,7 +382,7 @@ async function cleanup (
     for (const cls of rootClasses) {
       collect(await client.findAll(cls, { _id: { $in: [...owned] } }))
     }
-    // The only project written by this test has an owned ID. Include random UI IDs.
+    // The only project written by this test has a tracked fixture ID. Include generated UI IDs.
     collect(await client.findAll(tracker.class.Issue, { space: { $in: [...projects] } }))
     for (let depth = 0; depth < 8; depth++) {
       const count = owned.size
@@ -500,7 +500,7 @@ export const test = base.extend<MobileFixtures>({
       }
     })
     try {
-      // Same authentication page objects as sanity/auth, with explicit per-lane credentials.
+      // Use the sanity authentication page objects with explicit credentials for the target application.
       await page.addInitScript(() => {
         localStorage.setItem('#platform.testing.enabled', 'true')
         localStorage.setItem('#platform.lazy.loading', 'false')
