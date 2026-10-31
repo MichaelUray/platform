@@ -11,7 +11,8 @@ test('navigator waits for the authenticated shell before deciding to open', asyn
       body: `<script>
         setTimeout(() => {
           document.body.innerHTML = '<button id="app-workbench:string:ShowMenu">Menu</button>' +
-            '<main data-id="contentPanel" style="height:40px"></main><nav class="antiPanel-navigator" hidden></nav>';
+            '<main data-id="contentPanel" style="height:40px"></main>' +
+            '<nav class="antiPanel-navigator" style="height:40px" hidden></nav>';
           document.querySelector('button').onclick = () => {
             document.querySelector('nav').hidden = false;
             document.querySelector('button').id = 'app-workbench:string:HideMenu';
@@ -23,6 +24,16 @@ test('navigator waits for the authenticated shell before deciding to open', asyn
   await resetOverlays(page, 'http://mobile-harness.invalid/')
   await openNavigator(page)
   await expect(page.locator('button[id="app-workbench:string:HideMenu"]')).toBeVisible()
+})
+
+test('a lost browser session is reported as authentication failure before navigation', async ({ page }) => {
+  await page.route('http://mobile-harness.invalid/**', async (route) => {
+    await route.fulfill({ contentType: 'text/html', body: '<input name="email"><input name="current-password">' })
+  })
+  const failure = await resetOverlays(page, 'http://mobile-harness.invalid/').catch((error: unknown) => error)
+  expect(failure).toBeInstanceOf(Error)
+  expect((failure as Error).name).toBe('BrowserSessionError')
+  expect((failure as Error).message).toContain('account-service cookies')
 })
 
 test('only actual phone navigator interception establishes a known gap', async ({ page }) => {

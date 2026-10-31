@@ -132,6 +132,59 @@ To run the synthetic browser regressions with installed browsers, from `tests/sa
 npx --no-install playwright test -c tests/mobile-pwa.config.ts mobile/navigation.spec.ts --reporter=line
 ```
 
+## Live diagnosis and harness correction (2026-10-31)
+
+The live single-project runs used the existing `http://localhost:8083` stack, workspace `sanity-ws`,
+account `user1`, and installed browsers/dependencies from `prprep2`. Changed test files were copied
+from this worktree into that checkout for execution. No product code, build, Docker operation, browser
+installation, Git branch change or commit was needed.
+
+The latest historical evidence (`mobile-evidence-WqcdBL`) was reproduced with temporary structured
+logging, raw action traces and screenshots. The causes are distinct:
+
+- Desktop WebKit and iPhone 15 authenticate initially, but the account service's `PUT /cookie` response
+  uses `Domain=localhost`. WebKit does not retain `account-metadata-Token`; the next full page load
+  returns to login. Chromium retains that cookie. A controlled diagnostic forwarding the real response
+  through Node fetch, with only this Domain attribute removed, retained WebKit login across reload;
+  its unchanged-header control still lost login. The checked-in harness reports this local-stack
+  authentication blocker without rewriting cookies. This finding does not establish a Create or
+  Kanban defect, or a measured navigator obstruction.
+- Pixel 7 fails the Create locator count: `#tracker-string-NewIssue` belongs to the desktop navigator
+  action, which is unmounted after closing the floating navigator. The Issue view's primary header
+  action remains available. The survey now activates that unique control inside `contentPanel`, then
+  verifies the fixture project, title and description fields, cancels the empty form, and checks that
+  no Issue was persisted. Both orientations exercise real taps.
+- A live Firefox regression run exposed a post-cancel navigation race: `page.reload()` returned with
+  `document.readyState === 'complete'`, but menu and content panel counts were both zero. Starting
+  the next path could collide with workbench route restoration. The post-cancel load now uses
+  `resetOverlays`, including authenticated workbench readiness, before the API persistence check and
+  the next path.
+
+Setup now verifies browser authentication across a full reload before creating synthetic fixtures.
+Returning to login raises `BrowserSessionError` with a fixed diagnostic reason. Setup failures preserve
+that original error through teardown, and cleanup is successful when no fixture client or writes existed.
+The synthetic delayed-shell page also needs a nonzero navigator height to test actual visibility;
+that fixture is repaired, and a lost-session regression covers the new diagnostic.
+
+Final single-project outcomes with the product cookie response unchanged:
+
+| Project | UI paths | Result |
+| --- | --- | --- |
+| chromium | 4/4 | Passed; cleanup verified. |
+| firefox | 4/4 | Passed; cleanup verified. |
+| pixel-7 | 8/8 | Passed in portrait and landscape; cleanup verified. |
+| webkit | 0/4 | Blocked at persistent-authentication setup, before fixture writes. |
+| iphone-15 | 0/8 | Same authentication blocker, before fixture writes. |
+
+Evidence is under
+`tools/ghci/pc-review-2026-10-26/out/mobile-1/mobile-live-20261031-013135/` outside this repository:
+`verified/summary.json` holds final project results, and `diagnostics/` holds the reproduced failure
+traces, login screenshots and cookie experiment findings. Historical evidence remains unchanged.
+All 20 synthetic browser checks, all 10 offline runner contracts and strict no-emit TypeScript checking
+passed with the installed dependencies. Three additional Firefox repeats passed all four UI paths and
+verified cleanup. A diagnostics tool is unavailable; builds and formatting were
+excluded by the live-debug task. Temporary logging is removed from the harness.
+
 ## Implementation verification
 
 On 2026-10-31, branch `pcfix/mobile-01-testpaths`, local HEAD and `pc/develop` both matched

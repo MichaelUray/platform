@@ -115,7 +115,9 @@ test('survey reaches real list board and create', async ({ page, survey }, info)
       await chooseView(page, survey, survey.viewlets.list)
       const issues = new IssuesPage(page)
       survey.phase('open and cancel Create form')
-      await activate(page, issues.newIssue())
+      // The navigator's desktop action is unmounted when the phone menu closes.
+      // IssuesView supplies this project-scoped Create action on every viewport.
+      await activate(page, page.getByTestId('contentPanel').locator('.hulyHeader-buttonsGroup.actions button.primary'))
       const form = page.locator('form[id="tracker:string:NewIssue"]')
       await expect(form).toBeVisible()
       await expect(form).toContainText(survey.project.name)
@@ -125,7 +127,8 @@ test('survey reaches real list board and create', async ({ page, survey }, info)
       // Leave the form empty: no new issue, upload, or draft write is required here.
       await activate(page, form.locator('#card-close'))
       await expect(form).toHaveCount(0)
-      await page.reload()
+      survey.phase('verify canceled Create after a fresh workbench load')
+      await resetOverlays(page, projectURL)
       const persisted = await survey.client.findAll(tracker.class.Issue, { space: survey.project._id })
       expect(
         persisted.map((issue) => issue._id),

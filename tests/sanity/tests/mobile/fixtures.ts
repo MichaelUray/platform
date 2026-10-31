@@ -51,6 +51,13 @@ class NavigatorGapError extends Error {
   }
 }
 
+class BrowserSessionError extends Error {
+  constructor () {
+    super('Browser returned to login while loading the authenticated workbench; check account-service cookies')
+    this.name = 'BrowserSessionError'
+  }
+}
+
 /** Confirm actual hit interception, rather than interpreting a phone timeout as a product bug. */
 async function navigatorIntercepts (locator: Locator): Promise<boolean> {
   try {
@@ -86,9 +93,12 @@ export async function activate (page: Page, locator: Locator): Promise<void> {
 
 /** A URL and absence of overlays can both match before the authenticated app mounts. */
 export async function workbenchReady (page: Page): Promise<void> {
-  await expect(page.locator(
+  const menu = page.locator(
     'button[id="app-workbench:string:ShowMenu"], button[id="app-workbench:string:HideMenu"]'
-  )).toBeVisible()
+  )
+  const login = page.locator('input[name="email"]')
+  await expect(menu.or(login)).toBeVisible()
+  if (await login.isVisible()) throw new BrowserSessionError()
   await expect(page.getByTestId('contentPanel')).toBeVisible()
 }
 
@@ -367,10 +377,11 @@ export const test = base.extend<MobileFixtures>({
     let tracing = false
     let setupPhase = 'authenticate in browser'
     let setupFailure: { phase: string, reason: string } | undefined
+    // Before the fixture client connects there are no synthetic writes to clean up.
     let cleanupResult: Awaited<ReturnType<typeof cleanup>> = {
-      outcome: 'failed',
+      outcome: 'ok',
       remaining: [],
-      errors: ['Setup incomplete']
+      errors: []
     }
     const workspace = required('PLATFORM_WS')
     if (baseURL === undefined) throw new Error('An explicit target URL is required')
@@ -388,6 +399,9 @@ export const test = base.extend<MobileFixtures>({
       await new SelectWorkspacePage(page).selectWorkspace(workspace)
       await page.waitForURL((url) => url.pathname.startsWith(`/workbench/${encodeURIComponent(workspace)}/`))
       setupPhase = 'authenticated workbench readiness'
+      await workbenchReady(page)
+      setupPhase = 'verify persistent browser authentication'
+      await page.reload()
       await workbenchReady(page)
       setupPhase = 'authenticate fixture client'
       client = await connect(baseURL, {
@@ -422,9 +436,11 @@ export const test = base.extend<MobileFixtures>({
             result.failure = {
               kind: 'harness',
               phase,
-              reason: error instanceof Error && error.name === 'TimeoutError'
-                ? 'Action timed out; no product cause established'
-                : 'Action or assertion failed; no product cause established'
+              reason: error instanceof BrowserSessionError
+                ? error.message
+                : error instanceof Error && error.name === 'TimeoutError'
+                  ? 'Action timed out; no product cause established'
+                  : 'Action or assertion failed; no product cause established'
             }
             if (knownGap) {
               const screenshot = `${name.replace(/[^a-z]+/g, '-')}-navigator-gap`
@@ -454,7 +470,10 @@ export const test = base.extend<MobileFixtures>({
       }
       await use(survey)
     } catch (error) {
-      if (survey === undefined) setupFailure = { phase: setupPhase, reason: 'Setup failed before behavioral acceptance' }
+      if (survey === undefined) setupFailure = {
+        phase: setupPhase,
+        reason: error instanceof BrowserSessionError ? error.message : 'Setup failed before behavioral acceptance'
+      }
       throw error
     } finally {
       if (client !== undefined) {
@@ -500,7 +519,7 @@ export const test = base.extend<MobileFixtures>({
         remaining: [],
         errors: []
       })
-      if (info.status === 'passed') expect(isTask1Accepted(info.project.name, steps), 'Task 1 requires UI evidence or confirmed phone gaps, plus verified cleanup').toBe(true)
+      if (survey !== undefined && info.status === 'passed') expect(isTask1Accepted(info.project.name, steps), 'Task 1 requires UI evidence or confirmed phone gaps, plus verified cleanup').toBe(true)
     }
   }
 })
