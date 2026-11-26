@@ -212,6 +212,8 @@ export async function getIssueNotificationContent (
 }
 
 /**
+ * Removes the issues, components, milestones and issue templates of a removed project.
+ * Archived content and archived projects are removed as well, so that nothing outlives the project.
  * @public
  */
 export async function OnProjectRemove (txes: Tx[], control: TriggerControl): Promise<Tx[]> {

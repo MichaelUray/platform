@@ -3,6 +3,7 @@
 import core, {
   TxFactory,
   TxProcessor,
+  type Class,
   type Data,
   type Doc,
   type Ref,
@@ -199,6 +200,29 @@ it('cleans aliases through the project deletion cascade, including archived alia
   await world.apply(cascade)
   expect(world.aliases()).toEqual([])
   expect(world.findAll.mock.calls.find((call) => call[1] === tracker.class.IssueIdentifierAlias)).toBeDefined()
+})
+
+it('removes archived content together with an archived project', async () => {
+  const world = makeWorld()
+  await world.apply([world.move('B-7', B)])
+  const classes: Ref<Class<Doc>>[] = [tracker.class.Component, tracker.class.Milestone, tracker.class.IssueTemplate]
+  const attributes: Data<Doc> = {}
+  await world.apply(
+    classes.map((cls, index) => factory.createTxCreateDoc(cls, B, attributes, `archived-${index}` as Ref<Doc>, 1))
+  )
+  world.archived.add(B)
+  const projectTx = factory.createTxRemoveDoc(tracker.class.Project, core.space.Space, B as Ref<Project>)
+  world.findAll.mockClear()
+  const cascade = await OnProjectRemove([projectTx], world.control)
+  expect(new Set(cascade.map((tx) => (tx as TxCUD<Doc>).objectClass))).toEqual(
+    new Set([tracker.class.Issue, ...classes])
+  )
+  expect(world.findAll.mock.calls.map((call) => [call[1], call[2], call[3]])).toEqual([
+    [tracker.class.Issue, { space: B }, { showArchived: true }],
+    ...classes.map((cls) => [cls, { space: B }, { showArchived: true }])
+  ])
+  await world.apply(cascade)
+  expect([...world.docs.values()]).toEqual([])
 })
 
 it('records only the new transition, without backfilling historical moves', async () => {
