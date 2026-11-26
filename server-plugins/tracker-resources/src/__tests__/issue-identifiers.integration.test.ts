@@ -26,7 +26,13 @@ import core, {
 import buildModel from '@hcengineering/model-all'
 import { createMongoAdapter, createMongoTxAdapter, getMongoClient, shutdownMongo } from '@hcengineering/mongo'
 import { addLocation, getResourcePlugin } from '@hcengineering/platform'
-import { createPostgresAdapter, createPostgresTxAdapter, getDBClient, shutdownPostgres } from '@hcengineering/postgres'
+import {
+  createPostgresAdapter,
+  createPostgresTxAdapter,
+  getDBClient,
+  shutdownPostgres,
+  type PostgresClientReference
+} from '@hcengineering/postgres'
 import serverCore, { Triggers, type DbAdapter, type Trigger, type TriggerControl } from '@hcengineering/server-core'
 import tracker, { type Issue, type IssueIdentifierAlias } from '@hcengineering/tracker'
 import trackerResources from '../index'
@@ -37,9 +43,15 @@ const C = 'project-c' as Ref<Space>
 const factory = new TxFactory(core.account.System)
 const modelBuilder = buildModel()
 const modelTxes = modelBuilder.getTxes()
-const postgresUrl = process.env.DB_URL ?? 'postgresql://root@localhost:26258/defaultdb?sslmode=disable'
-const mongoUrl = process.env.MONGO_URL ?? 'mongodb://localhost:27018'
-const postgresClient = getDBClient(postgresUrl)
+const postgresUrl = process.env.DB_URL
+const mongoUrl = process.env.MONGO_URL
+if ((postgresUrl === undefined) !== (mongoUrl === undefined)) {
+  throw new Error('The issue identifier storage tests need both DB_URL and MONGO_URL, or neither')
+}
+// Both storage adapters must be configured explicitly; the CI test job exports both for `rush test`.
+// A plain local `jest` run skips these tests instead of failing on missing database services.
+const storageConfigured = postgresUrl !== undefined && mongoUrl !== undefined
+let postgresClient: PostgresClientReference | undefined
 
 let hierarchy: Hierarchy
 let model: ModelDb
@@ -49,6 +61,7 @@ let closeWorld: (() => Promise<void>) | undefined
 jest.setTimeout(30000)
 
 beforeAll(async () => {
+  if (postgresUrl !== undefined) postgresClient = getDBClient(postgresUrl)
   hierarchy = modelBuilder.hierarchy
   model = new ModelDb(hierarchy)
   for (const tx of modelTxes) {
@@ -70,9 +83,17 @@ afterEach(async () => {
 })
 
 afterAll(async () => {
-  postgresClient.close()
+  postgresClient?.close()
   await Promise.all([shutdownMongo(), shutdownPostgres()])
 })
+
+function storageSuite (name: string, body: (kind: 'mongo' | 'postgres') => void): void {
+  if (!storageConfigured) {
+    describe.skip.each(['mongo', 'postgres'] as const)(name, body)
+    return
+  }
+  describe.each(['mongo', 'postgres'] as const)(name, body)
+}
 
 interface AdapterWorld {
   create: (identifier?: string, withHistory?: boolean) => Promise<TxCreateDoc<Issue>>
@@ -91,6 +112,9 @@ async function createWorld (kind: 'mongo' | 'postgres'): Promise<AdapterWorld> {
   let timestamp = Date.now()
 
   if (kind === 'postgres') {
+    if (postgresUrl === undefined || postgresClient === undefined) {
+      throw new Error('DB_URL is not configured')
+    }
     const client = await postgresClient.getClient()
     await client`CREATE DATABASE ${client(workspaceUuid)}`
     const url = postgresUrl.replace('defaultdb', workspaceUuid)
@@ -106,18 +130,21 @@ async function createWorld (kind: 'mongo' | 'postgres'): Promise<AdapterWorld> {
     closeWorld = async () => {
       await storage.close()
       await txStorage.close()
-      const client = await postgresClient.getClient()
+      const client = await postgresClient?.getClient()
+      if (client === undefined) throw new Error('DB_URL is not configured')
       await client`DROP DATABASE ${client(workspaceUuid)}`
     }
   } else {
+    if (mongoUrl === undefined) throw new Error('MONGO_URL is not configured')
+    const url = mongoUrl
     const ids = { uuid: workspaceUuid, url: workspaceUuid }
-    storage = await createMongoAdapter(ctx, hierarchy, mongoUrl, ids, model)
-    txStorage = await createMongoTxAdapter(ctx, hierarchy, mongoUrl, ids, model)
+    storage = await createMongoAdapter(ctx, hierarchy, url, ids, model)
+    txStorage = await createMongoTxAdapter(ctx, hierarchy, url, ids, model)
     await txStorage.init?.(ctx, {})
     closeWorld = async () => {
       await storage.close()
       await txStorage.close()
-      const client = getMongoClient(mongoUrl)
+      const client = getMongoClient(url)
       await (await client.getClient()).db(workspaceUuid).dropDatabase()
       client.close()
     }
@@ -197,7 +224,7 @@ function createdAliases (txes: Tx[]): TxCreateDoc<IssueIdentifierAlias>[] {
   )
 }
 
-describe.each(['mongo', 'postgres'] as const)('%s issue identifier history', (kind) => {
+storageSuite('%s issue identifier history', (kind) => {
   it('uses only the latest identifier before the current move', async () => {
     const world = await createWorld(kind)
     const { objectId } = await world.create()
