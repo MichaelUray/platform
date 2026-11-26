@@ -602,6 +602,45 @@ describe('permission cache refresh', () => {
     }
   })
 
+  it('reports blocked spaces and the administration queue as workspace metrics', async () => {
+    const { middleware, storage, ctx } = await setup()
+    const measures = jest.spyOn(ctx, 'measure')
+    const gauge = (name: string): unknown[] =>
+      measures.mock.calls.filter((call) => call[0] === name).map((call) => call[1])
+    const owner = makeContext(OWNER)
+    jest.spyOn(owner, 'error').mockImplementation(() => {})
+    const reading = deferred()
+    const gate = deferred()
+    let fail = true
+    storage.beforeRead = async (query) => {
+      if (typeof query._id === 'object') {
+        reading.resolve()
+        await gate.promise
+        if (fail) throw new Error('refresh unavailable')
+      }
+    }
+    try {
+      const first = middleware.tx(owner, [update({ $push: { members: OTHER } })])
+      await reading.promise
+      const queued = middleware.tx(owner, [update({ $push: { members: MEMBER } })])
+      // Let the second request reach the queue before releasing the first refresh.
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(gauge('space-permissions-admin-queue')).toEqual([1, 2])
+      gate.resolve()
+      await expect(first).resolves.toEqual({})
+      await expect(queued).rejects.toEqual(forbidden)
+      expect(gauge('space-permissions-failed').at(-1)).toBe(1)
+      expect(gauge('space-permissions-admin-queue').at(-1)).toBe(0)
+      fail = false
+      await expect(middleware.tx(owner, [update({ $push: { members: OTHER } })])).resolves.toEqual({})
+      expect(gauge('space-permissions-failed').at(-1)).toBe(0)
+      expect(measures.mock.calls.every((call) => call[2] === true)).toBe(true)
+    } finally {
+      gate.resolve()
+      await middleware.close()
+    }
+  })
+
   it('uses model updates from the full pipeline when rebuilding role permissions', async () => {
     const { storage, ctx, space, model, context } = await setup([core.permission.DeleteObject])
     const permission = model.findAllSync(core.class.Permission, { _id: core.permission.DeleteObject })[0]

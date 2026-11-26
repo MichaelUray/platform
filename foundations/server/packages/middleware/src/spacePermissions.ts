@@ -72,6 +72,7 @@ export class SpacePermissionsMiddleware extends BaseMiddleware implements Middle
   private permissionsBySpace: Record<Ref<Space>, Record<AccountUuid, Set<Permission>>> = {}
   private typeBySpace: Record<Ref<Space>, Ref<SpaceType>> = {}
   private administrationTail: Promise<void> = Promise.resolve()
+  private pendingAdministration = 0
   private readonly pendingSpaces = new Map<Ref<Space>, Promise<void>>()
   private readonly failedSpaces = new Set<Ref<Space>>()
   private retryTimer?: NodeJS.Timeout
@@ -393,6 +394,7 @@ export class SpacePermissionsMiddleware extends BaseMiddleware implements Middle
         }
         this.failedSpaces.delete(id)
       }
+      this.reportMetrics()
     } catch (err) {
       for (const id of ids) {
         if (this.pendingSpaces.get(id) === pending) this.failedSpaces.add(id)
@@ -400,6 +402,7 @@ export class SpacePermissionsMiddleware extends BaseMiddleware implements Middle
       // Persistence already succeeded. Keep the committed write successful and
       // retain the last grants until a background or request-driven refresh succeeds.
       ctx.error('Failed to refresh space permissions', { ids: Array.from(ids), err })
+      this.reportMetrics()
       this.scheduleRefreshRetry()
     } finally {
       for (const id of ids) {
@@ -407,6 +410,12 @@ export class SpacePermissionsMiddleware extends BaseMiddleware implements Middle
       }
       release()
     }
+  }
+
+  /** Report blocked spaces and the administration queue as workspace metrics. */
+  private reportMetrics (): void {
+    this.ctx.measure('space-permissions-failed', this.failedSpaces.size, true)
+    this.ctx.measure('space-permissions-admin-queue', this.pendingAdministration, true)
   }
 
   private scheduleRefreshRetry (): void {
@@ -496,6 +505,8 @@ export class SpacePermissionsMiddleware extends BaseMiddleware implements Middle
       this.administrationTail = new Promise<void>((resolve) => {
         release = resolve
       })
+      this.pendingAdministration++
+      this.reportMetrics()
       await previous
     }
     try {
@@ -512,6 +523,10 @@ export class SpacePermissionsMiddleware extends BaseMiddleware implements Middle
       return res
     } finally {
       release?.()
+      if (release !== undefined) {
+        this.pendingAdministration--
+        this.reportMetrics()
+      }
     }
   }
 
