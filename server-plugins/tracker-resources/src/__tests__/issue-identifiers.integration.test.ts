@@ -123,7 +123,11 @@ async function createWorld (kind: 'mongo' | 'postgres'): Promise<AdapterWorld> {
     const url = testUrl.toString()
     const client = await postgresClient.getClient()
     await client`CREATE DATABASE ${client(workspaceUuid)}`
-    let testClient: PostgresClientReference | undefined
+    const dropDatabase = async (): Promise<void> => {
+      await client`DROP DATABASE ${client(workspaceUuid)}`
+    }
+    closeWorld = dropDatabase
+    const testClient = getDBClient(url)
     closeWorld = async () => {
       try {
         const closed = await Promise.allSettled([storage?.close(), txStorage?.close()])
@@ -131,16 +135,15 @@ async function createWorld (kind: 'mongo' | 'postgres'): Promise<AdapterWorld> {
         if (failed !== undefined) throw failed.reason
       } finally {
         try {
-          const connection = await testClient?.getClient()
-          testClient?.close()
-          await connection?.end({ timeout: 1 })
+          const connection = await testClient.getClient()
+          testClient.close()
+          await connection.end({ timeout: 1 })
         } finally {
-          await client`DROP DATABASE ${client(workspaceUuid)}`
+          await dropDatabase()
         }
       }
     }
     // Check the effective target since connection options can override the database in the URL.
-    testClient = getDBClient(url)
     const connection = await testClient.getClient()
     const [database] = await connection`SELECT current_database() AS name`
     if (database.name !== workspaceUuid) {
