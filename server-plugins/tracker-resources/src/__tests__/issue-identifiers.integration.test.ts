@@ -79,7 +79,9 @@ beforeAll(async () => {
 }, 30000)
 
 afterEach(async () => {
-  await closeWorld?.()
+  const close = closeWorld
+  closeWorld = undefined
+  await close?.()
 })
 
 afterAll(async () => {
@@ -96,6 +98,7 @@ function storageSuite (name: string, body: (kind: 'mongo' | 'postgres') => void)
 }
 
 interface AdapterWorld {
+  workspaceUuid: WorkspaceUuid
   create: (identifier?: string, withHistory?: boolean) => Promise<TxCreateDoc<Issue>>
   persist: (tx: Tx, withHistory?: boolean) => Promise<void>
   apply: (txes: Tx[]) => Promise<Tx[]>
@@ -115,9 +118,34 @@ async function createWorld (kind: 'mongo' | 'postgres'): Promise<AdapterWorld> {
     if (postgresUrl === undefined || postgresClient === undefined) {
       throw new Error('DB_URL is not configured')
     }
+    const testUrl = new URL(postgresUrl)
+    testUrl.pathname = '/' + workspaceUuid
+    const url = testUrl.toString()
     const client = await postgresClient.getClient()
     await client`CREATE DATABASE ${client(workspaceUuid)}`
-    const url = postgresUrl.replace('defaultdb', workspaceUuid)
+    let testClient: PostgresClientReference | undefined
+    closeWorld = async () => {
+      try {
+        const closed = await Promise.allSettled([storage?.close(), txStorage?.close()])
+        const failed = closed.find((result) => result.status === 'rejected')
+        if (failed !== undefined) throw failed.reason
+      } finally {
+        try {
+          const connection = await testClient?.getClient()
+          testClient?.close()
+          await connection?.end({ timeout: 1 })
+        } finally {
+          await client`DROP DATABASE ${client(workspaceUuid)}`
+        }
+      }
+    }
+    // Check the effective target since connection options can override the database in the URL.
+    testClient = getDBClient(url)
+    const connection = await testClient.getClient()
+    const [database] = await connection`SELECT current_database() AS name`
+    if (database.name !== workspaceUuid) {
+      throw new Error('The PostgreSQL adapters must use the temporary test database')
+    }
     const ids = { uuid: workspaceUuid, url }
     storage = await createPostgresAdapter(ctx, hierarchy, url, ids, model)
     txStorage = await createPostgresTxAdapter(ctx, hierarchy, url, ids, model)
@@ -127,13 +155,6 @@ async function createWorld (kind: 'mongo' | 'postgres'): Promise<AdapterWorld> {
       hierarchy.getDomain(core.class.Tx)
     ])
     await txStorage.init?.(ctx, {})
-    closeWorld = async () => {
-      await storage.close()
-      await txStorage.close()
-      const client = await postgresClient?.getClient()
-      if (client === undefined) throw new Error('DB_URL is not configured')
-      await client`DROP DATABASE ${client(workspaceUuid)}`
-    }
   } else {
     if (mongoUrl === undefined) throw new Error('MONGO_URL is not configured')
     const url = mongoUrl
@@ -188,6 +209,7 @@ async function createWorld (kind: 'mongo' | 'postgres'): Promise<AdapterWorld> {
   }
 
   return {
+    workspaceUuid,
     create: async (identifier = 'A-1', withHistory = true) => {
       const tx = factory.createTxCreateDoc(tracker.class.Issue, A, {
         identifier,
@@ -223,6 +245,25 @@ function createdAliases (txes: Tx[]): TxCreateDoc<IssueIdentifierAlias>[] {
       (tx as TxCreateDoc<IssueIdentifierAlias>).objectClass === tracker.class.IssueIdentifierAlias
   )
 }
+
+const postgresTest = storageConfigured ? it : it.skip
+postgresTest('writes the issue and its history to the temporary PostgreSQL database', async () => {
+  if (postgresUrl === undefined) throw new Error('DB_URL is not configured')
+  const world = await createWorld('postgres')
+  const issue = await world.create()
+  const url = new URL(postgresUrl)
+  url.pathname = '/' + world.workspaceUuid
+  const reference = getDBClient(url.toString())
+  try {
+    const client = await reference.getClient()
+    const issueDomain = client(hierarchy.getDomain(tracker.class.Issue))
+    const txDomain = client(hierarchy.getDomain(core.class.Tx))
+    expect(await client`SELECT _id FROM ${issueDomain} WHERE _id = ${issue.objectId}`).toHaveLength(1)
+    expect(await client`SELECT _id FROM ${txDomain} WHERE _id = ${issue._id}`).toHaveLength(1)
+  } finally {
+    reference.close()
+  }
+})
 
 storageSuite('%s issue identifier history', (kind) => {
   it('uses only the latest identifier before the current move', async () => {
